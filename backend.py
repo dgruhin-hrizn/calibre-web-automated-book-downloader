@@ -180,8 +180,12 @@ def _download_book_with_cancellation(book_id: str, cancel_flag: Event) -> Option
             try:
                 shutil.move(book_path, intermediate_path)
             except Exception as e:
-                logger.debug(f"Error moving book: {e}, will try copying instead")
-                shutil.copy(book_path, intermediate_path)
+                try:
+                    logger.debug(f"Error moving book: {e}, will try copying instead")
+                    shutil.move(book_path, intermediate_path)
+                except Exception as e:
+                    logger.debug(f"Error copying book: {e}, will try copying without permissions instead")
+                    shutil.copyfile(book_path, intermediate_path)
                 os.remove(book_path)
             
             # Final cancellation check before completing
