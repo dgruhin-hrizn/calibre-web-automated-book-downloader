@@ -5,6 +5,7 @@ import io, re, os
 import sqlite3
 from functools import wraps
 from flask import Flask, request, jsonify, render_template, send_file, send_from_directory
+from flask_cors import CORS
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash
 from werkzeug.wrappers import Response
@@ -23,6 +24,13 @@ app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app)  # type: ignore
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # Disable caching
 app.config['APPLICATION_ROOT'] = '/'
+
+# Enable CORS for React frontend
+CORS(app, 
+     origins=['http://localhost:5173', 'http://127.0.0.1:5173'],
+     supports_credentials=True,
+     allow_headers=['Content-Type', 'Authorization'],
+     methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
 
 # Flask logger
 app.logger.handlers = logger.handlers
@@ -101,8 +109,14 @@ def url_for_with_request(endpoint : str, **values : typing.Any) -> str:
 @login_required
 def index() -> str:
     """
-    Render main page with search and status table.
+    Serve React frontend in production, or render template in development.
     """
+    # Check if we have a built React app
+    react_build_path = os.path.join(app.root_path, 'frontend', 'dist', 'index.html')
+    if os.path.exists(react_build_path):
+        return send_file(react_build_path)
+    
+    # Fallback to original template for development
     return render_template('index.html', 
                            book_languages=_SUPPORTED_BOOK_LANGUAGE, 
                            default_language=BOOK_LANGUAGE, 
@@ -111,6 +125,12 @@ def index() -> str:
                            release_version=RELEASE_VERSION,
                            app_env=APP_ENV
                            )
+
+# Serve React static files
+@app.route('/assets/<path:filename>')
+def react_assets(filename):
+    """Serve React build assets."""
+    return send_from_directory(os.path.join(app.root_path, 'frontend', 'dist', 'assets'), filename)
 
  
 
@@ -239,6 +259,139 @@ def api_info() -> Union[Response, Tuple[Response, int]]:
     except Exception as e:
         logger.error_trace(f"Info error: {e}")
         return jsonify({"error": str(e)}), 500
+
+@app.route('/api/settings/google-books', methods=['GET', 'POST'])
+@login_required
+def api_google_books_settings() -> Union[Response, Tuple[Response, int]]:
+    """
+    Get or set Google Books API settings.
+    
+    GET: Returns current Google Books API settings
+    POST: Updates Google Books API settings
+    
+    Returns:
+        flask.Response: JSON object with settings or confirmation message
+    """
+    if request.method == 'GET':
+        try:
+            settings = backend.get_google_books_settings()
+            return jsonify(settings)
+        except Exception as e:
+            logger.error_trace(f"Error getting Google Books settings: {e}")
+            return jsonify({"error": str(e)}), 500
+    
+    elif request.method == 'POST':
+        try:
+            data = request.get_json()
+            api_key = data.get('apiKey', '')
+            is_valid = data.get('isValid', False)
+            
+            backend.save_google_books_settings(api_key, is_valid)
+            return jsonify({"message": "Google Books API settings saved successfully"})
+        except Exception as e:
+            logger.error_trace(f"Error saving Google Books settings: {e}")
+            return jsonify({"error": str(e)}), 500
+
+@app.route('/api/settings/google-books/test', methods=['POST'])
+@login_required
+def api_test_google_books_key() -> Union[Response, Tuple[Response, int]]:
+    """
+    Test Google Books API key validity.
+    
+    Returns:
+        flask.Response: JSON object with validity status
+    """
+    try:
+        data = request.get_json()
+        api_key = data.get('apiKey', '')
+        
+        is_valid = backend.test_google_books_api_key(api_key)
+        return jsonify({"valid": is_valid})
+    except Exception as e:
+        logger.error_trace(f"Error testing Google Books API key: {e}")
+        return jsonify({"valid": False, "error": str(e)}), 500
+
+@app.route('/api/google-books/search', methods=['POST'])
+@login_required
+def api_google_books_search() -> Union[Response, Tuple[Response, int]]:
+    """
+    Search Google Books API for book information.
+    
+    Returns:
+        flask.Response: JSON object with Google Books data
+    """
+    try:
+        data = request.get_json()
+        title = data.get('title', '')
+        author = data.get('author', '')
+        max_results = data.get('maxResults', 1)
+        
+        logger.info(f"Google Books search request: title='{title}', author='{author}', maxResults={max_results}")
+        
+        google_data = backend.search_google_books(title, author, max_results=max_results)
+        if google_data:
+            logger.info(f"Google Books search successful for '{title}'")
+            return jsonify(google_data)
+        else:
+            logger.info(f"No Google Books data found for '{title}'")
+            return jsonify({"error": "No Google Books data found"}), 404
+    except Exception as e:
+        logger.error_trace(f"Error searching Google Books: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/google-books/volume/<volume_id>', methods=['GET'])
+@login_required
+def api_google_books_volume_details(volume_id: str) -> Union[Response, Tuple[Response, int]]:
+    """
+    Get detailed Google Books volume information by volume ID.
+    
+    Returns:
+        flask.Response: JSON object with detailed Google Books volume data
+    """
+    try:
+        logger.info(f"Google Books volume details request for ID: {volume_id}")
+        
+        volume_data = backend.get_google_books_volume_details(volume_id)
+        if volume_data:
+            logger.info(f"Google Books volume details successful for '{volume_id}'")
+            return jsonify(volume_data)
+        else:
+            logger.info(f"No Google Books volume data found for '{volume_id}'")
+            return jsonify({"error": "No Google Books volume data found"}), 404
+    except Exception as e:
+        logger.error_trace(f"Error getting Google Books volume details: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/book-details/<book_id>', methods=['GET', 'POST'])
+@login_required
+def api_enhanced_book_details(book_id: str) -> Union[Response, Tuple[Response, int]]:
+    """
+    Get enhanced book details with Google Books API data.
+    
+    Args:
+        book_id: Book identifier (MD5 hash)
+    
+    Returns:
+        flask.Response: JSON object with enhanced book details
+    """
+    try:
+        # Check if basic book info is provided in POST body to avoid re-fetching
+        basic_book_info = None
+        if request.method == 'POST':
+            data = request.get_json()
+            if data and 'basicBookInfo' in data:
+                basic_book_info = data['basicBookInfo']
+                logger.info("Using provided basic book info from request body")
+        
+        enhanced_details = backend.get_enhanced_book_details(book_id, basic_book_info)
+        if enhanced_details:
+            return jsonify(enhanced_details)
+        return jsonify({"error": "Book not found"}), 404
+    except Exception as e:
+        logger.error_trace(f"Error getting enhanced book details: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 
 @app.route('/api/download', methods=['GET'])
 @login_required

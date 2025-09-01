@@ -374,9 +374,36 @@ def _get_download_url(link: str, title: str, cancel_flag: Optional[Event] = None
                 if countdown:
                     sleep_time = int(countdown[0].text)
                     logger.info(f"Waiting {sleep_time}s for {title}")
+                    
+                    # Update status to WAITING and set wait time info
+                    import backend
+                    import time
+                    from models import QueueStatus
+                    
+                    # Find book_id by title (this is a bit hacky but works for now)
+                    book_id = None
+                    status = backend.book_queue.get_status()
+                    for status_type, books in status.items():
+                        for bid, book_info in books.items():
+                            if book_info.title == title:
+                                book_id = bid
+                                break
+                        if book_id:
+                            break
+                    
+                    if book_id:
+                        wait_start = time.time()
+                        backend.book_queue.update_status(book_id, QueueStatus.WAITING)
+                        backend.update_download_wait_time(book_id, sleep_time, wait_start)
+                    
                     if cancel_flag is not None and cancel_flag.wait(timeout=sleep_time):
                         logger.info(f"Cancelled wait for {title}")
                         return ""
+                    
+                    # Set back to downloading after wait is complete
+                    if book_id:
+                        backend.book_queue.update_status(book_id, QueueStatus.DOWNLOADING)
+                        
                     url = _get_download_url(link, title, cancel_flag)
             else:
                 url = download_links[0]["href"]

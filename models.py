@@ -13,6 +13,8 @@ from env import INGEST_DIR, STATUS_TIMEOUT
 class QueueStatus(str, Enum):
     """Enum for possible book queue statuses."""
     QUEUED = "queued"
+    PROCESSING = "processing"  # Backend is working on it but no actual download progress yet
+    WAITING = "waiting"
     DOWNLOADING = "downloading"
     AVAILABLE = "available"
     ERROR = "error"
@@ -49,6 +51,8 @@ class BookInfo:
     download_path: Optional[str] = None
     priority: int = 0
     progress: Optional[float] = None
+    wait_time: Optional[int] = None      # Total wait time in seconds
+    wait_start: Optional[float] = None   # When waiting started (timestamp)
 
 class BookQueue:
     """Thread-safe book queue manager with priority support and cancellation."""
@@ -131,6 +135,18 @@ class BookQueue:
         with self._lock:
             if book_id in self._book_data:
                 self._book_data[book_id].progress = progress
+                
+    def update_wait_time(self, book_id: str, wait_time: int, wait_start: float) -> None:
+        """Update waiting time information for a book."""
+        with self._lock:
+            if book_id in self._book_data:
+                self._book_data[book_id].wait_time = wait_time
+                self._book_data[book_id].wait_start = wait_start
+                
+    def get_status_for_book(self, book_id: str) -> Optional[QueueStatus]:
+        """Get current status for a specific book."""
+        with self._lock:
+            return self._status.get(book_id)
             
     def get_status(self) -> Dict[QueueStatus, Dict[str, BookInfo]]:
         """Get current queue status."""

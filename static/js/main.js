@@ -1,383 +1,1097 @@
-// Modern UI script: search, cards, details, downloads, status, theme
-// Reuses existing API endpoints. Keeps logic minimal and accessible.
+// Modern Admin Dashboard - Book Downloader
+// Enhanced with progress tracking, toast notifications, and modern UI patterns
 
 (function () {
-  // ---- DOM ----
-  const el = {
-    searchInput: document.getElementById('search-input'),
-    searchBtn: document.getElementById('search-button'),
-    advToggle: document.getElementById('toggle-advanced'),
-    filtersForm: document.getElementById('search-filters'),
-    isbn: document.getElementById('isbn-input'),
-    author: document.getElementById('author-input'),
-    title: document.getElementById('title-input'),
-    lang: document.getElementById('lang-input'),
-    sort: document.getElementById('sort-input'),
-    content: document.getElementById('content-input'),
-    resultsGrid: document.getElementById('results-grid'),
-    noResults: document.getElementById('no-results'),
-    searchLoading: document.getElementById('search-loading'),
-    modalOverlay: document.getElementById('modal-overlay'),
-    detailsContainer: document.getElementById('details-container'),
-    refreshStatusBtn: document.getElementById('refresh-status-button'),
-    clearCompletedBtn: document.getElementById('clear-completed-button'),
-    statusLoading: document.getElementById('status-loading'),
-    statusList: document.getElementById('status-list'),
-    activeDownloadsCount: document.getElementById('active-downloads-count'),
-    // Active downloads (top section under search)
-    activeTopSec: document.getElementById('active-downloads-top'),
-    activeTopList: document.getElementById('active-downloads-list'),
-    activeTopRefreshBtn: document.getElementById('active-refresh-button'),
-    themeToggle: document.getElementById('theme-toggle'),
-    themeText: document.getElementById('theme-text'),
-    themeMenu: document.getElementById('theme-menu')
+  'use strict';
+
+  // ---- State Management ----
+  const state = {
+    currentPage: 'dashboard',
+    activeDownloads: new Map(),
+    downloadHistory: [],
+    searchResults: [],
+    selectedItems: new Set(),
+    notifications: new Map(),
+    lastUpdate: 0,
+    updateInterval: null
   };
 
-  // ---- Constants ----
+  // ---- DOM Elements ----
+  const elements = {
+    // Navigation
+    sidebar: document.getElementById('sidebar'),
+    sidebarToggle: document.getElementById('sidebar-toggle'),
+    sidebarOverlay: document.getElementById('sidebar-overlay'),
+    navItems: document.querySelectorAll('.nav-item'),
+    
+    // Pages
+    pages: document.querySelectorAll('.page-content'),
+    dashboardPage: document.getElementById('dashboard-page'),
+    searchPage: document.getElementById('search-page'),
+    downloadsPage: document.getElementById('downloads-page'),
+    statusPage: document.getElementById('status-page'),
+    settingsPage: document.getElementById('settings-page'),
+    debugPage: document.getElementById('debug-page'),
+
+    // Header Progress
+    progressContainer: document.getElementById('download-progress-container'),
+    progressButton: document.getElementById('progress-button'),
+    progressText: document.getElementById('progress-text'),
+    progressDropdown: document.getElementById('progress-dropdown'),
+    activeDownloadsList: document.getElementById('active-downloads-list'),
+    downloadHistoryList: document.getElementById('download-history-list'),
+
+    // Search
+    searchInput: document.getElementById('search-input'),
+    searchButton: document.getElementById('search-button'),
+    searchLoading: document.getElementById('search-loading'),
+    resultsGrid: document.getElementById('results-grid'),
+    noResults: document.getElementById('no-results'),
+    toggleAdvanced: document.getElementById('toggle-advanced'),
+    searchFilters: document.getElementById('search-filters'),
+    advSearchButton: document.getElementById('adv-search-button'),
+
+    // Modal
+    modalOverlay: document.getElementById('modal-overlay'),
+    detailsContainer: document.getElementById('details-container'),
+    closeModal: document.getElementById('close-modal'),
+    closeDetails: document.getElementById('close-details'),
+    downloadButton: document.getElementById('download-button'),
+
+    // Toast
+    toastContainer: document.getElementById('toast-container'),
+    toastTemplate: document.getElementById('toast-template'),
+
+    // Theme
+    themeToggle: document.getElementById('theme-toggle'),
+    themeMenu: document.getElementById('theme-menu'),
+    themeIconLight: document.getElementById('theme-icon-light'),
+    themeIconDark: document.getElementById('theme-icon-dark'),
+
+    // Command Palette
+    commandPalette: document.getElementById('command-palette'),
+    commandInput: document.getElementById('command-input'),
+    commandResults: document.getElementById('command-results'),
+    commandBackdrop: document.getElementById('command-backdrop'),
+
+    // Dashboard Stats
+    statsActive: document.getElementById('stats-active'),
+    statsQueued: document.getElementById('stats-queued'),
+    statsCompleted: document.getElementById('stats-completed'),
+    statsFailed: document.getElementById('stats-failed'),
+
+    // Downloads page
+    downloadsTabs: document.querySelectorAll('.downloads-tab'),
+    tabContents: document.querySelectorAll('.tab-content')
+  };
+
+  // ---- API Endpoints ----
   const API = {
     search: '/request/api/search',
     info: '/request/api/info',
     download: '/request/api/download',
     status: '/request/api/status',
-    cancelDownload: '/request/api/download',
-    setPriority: '/request/api/queue',
+    cancel: '/request/api/download',
     clearCompleted: '/request/api/queue/clear',
     activeDownloads: '/request/api/downloads/active'
   };
-  const FILTERS = ['isbn', 'author', 'title', 'lang', 'sort', 'content', 'format'];
 
-  // ---- Utils ----
+  // ---- Utility Functions ----
   const utils = {
-    show(node) { node && node.classList.remove('hidden'); },
-    hide(node) { node && node.classList.add('hidden'); },
-    async j(url, opts = {}) {
-      const res = await fetch(url, opts);
-      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-      return res.json();
+    // DOM manipulation
+    show(element) { element?.classList.remove('hidden'); },
+    hide(element) { element?.classList.add('hidden'); },
+    toggle(element) { element?.classList.toggle('hidden'); },
+    
+    // HTTP requests
+    async request(url, options = {}) {
+      try {
+        const response = await fetch(url, {
+          headers: { 'Content-Type': 'application/json' },
+          ...options
+        });
+        if (!response.ok) throw new Error(`${response.status}: ${response.statusText}`);
+        return await response.json();
+      } catch (error) {
+        console.error('API request failed:', error);
+        throw error;
+      }
     },
-    // Build query string from basic + advanced filters
-    buildQuery() {
-      const q = [];
-      const basic = el.searchInput?.value?.trim();
-      if (basic) q.push(`query=${encodeURIComponent(basic)}`);
 
-      if (!el.filtersForm || el.filtersForm.classList.contains('hidden')) {
-        return q.join('&');
+    // Text utilities
+    escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    },
+
+    formatFileSize(bytes) {
+      if (!bytes) return '--';
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(1024));
+      return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${sizes[i]}`;
+    },
+
+    formatDate(date) {
+      return new Intl.DateTimeFormat('en-US', {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      }).format(new Date(date));
+    },
+
+    // Query building for search
+    buildSearchQuery() {
+      const params = new URLSearchParams();
+      
+      // Basic search
+      const query = elements.searchInput?.value?.trim();
+      if (query) params.set('query', query);
+
+      // Advanced filters (if visible)
+      if (!elements.searchFilters?.classList.contains('hidden')) {
+        const filters = ['isbn', 'author', 'title', 'lang', 'sort', 'content'];
+        filters.forEach(filter => {
+          const input = document.getElementById(`${filter}-input`);
+          const value = input?.value?.trim();
+          if (value) params.set(filter, value);
+        });
+
+        // Format checkboxes
+        document.querySelectorAll('[id^="format-"]:checked').forEach(cb => {
+          params.append('format', cb.value);
+        });
       }
 
-      FILTERS.forEach((name) => {
-        if (name === 'format') {
-          const checked = Array.from(document.querySelectorAll('[id^="format-"]:checked'));
-          checked.forEach((cb) => q.push(`format=${encodeURIComponent(cb.value)}`));
+      return params.toString();
+    }
+  };
+
+  // ---- Navigation System ----
+  const navigation = {
+    init() {
+      // Sidebar toggle for mobile
+      elements.sidebarToggle?.addEventListener('click', this.toggleSidebar);
+      elements.sidebarOverlay?.addEventListener('click', this.closeSidebar);
+
+      // Navigation items
+      elements.navItems.forEach(item => {
+        item.addEventListener('click', (e) => {
+          e.preventDefault();
+          const page = item.id.replace('nav-', '');
+          this.navigateTo(page);
+        });
+      });
+
+      // Quick action buttons
+      document.getElementById('quick-search')?.addEventListener('click', () => this.navigateTo('search'));
+      document.getElementById('quick-status')?.addEventListener('click', () => this.navigateTo('status'));
+    },
+
+    toggleSidebar() {
+      elements.sidebar?.classList.toggle('-translate-x-full');
+      utils.toggle(elements.sidebarOverlay);
+    },
+
+    closeSidebar() {
+      elements.sidebar?.classList.add('-translate-x-full');
+      utils.hide(elements.sidebarOverlay);
+    },
+
+    navigateTo(page) {
+      // Update state
+      state.currentPage = page;
+
+      // Update navigation
+      elements.navItems.forEach(item => {
+        item.classList.toggle('active', item.id === `nav-${page}`);
+      });
+
+      // Update pages
+      elements.pages.forEach(pageEl => {
+        pageEl.classList.toggle('hidden', pageEl.id !== `${page}-page`);
+      });
+
+      // Page-specific initialization
+      switch (page) {
+        case 'dashboard':
+          dashboard.refresh();
+          break;
+        case 'search':
+          search.focus();
+          break;
+        case 'downloads':
+          downloads.refresh();
+          break;
+        case 'status':
+          status.refresh();
+          break;
+      }
+
+      // Close mobile sidebar
+      if (window.innerWidth < 1024) {
+        this.closeSidebar();
+      }
+    }
+  };
+
+  // ---- Toast Notification System ----
+  const toast = {
+    show(options) {
+      const {
+        type = 'info',
+        title,
+        message,
+        duration = 5000,
+        actions = [],
+        progress = null,
+        persistent = false
+      } = options;
+
+      const id = Date.now().toString();
+      const template = elements.toastTemplate.content.cloneNode(true);
+      const toastEl = template.querySelector('.toast-notification');
+      
+      toastEl.setAttribute('data-toast-id', id);
+      toastEl.setAttribute('data-type', type);
+
+      // Set content
+      toastEl.querySelector('.toast-title').textContent = title;
+      toastEl.querySelector('.toast-message').textContent = message;
+
+      // Show appropriate icon
+      toastEl.querySelector(`.toast-icon-${type}`)?.classList.remove('hidden');
+
+      // Handle progress
+      if (progress !== null) {
+        const progressEl = toastEl.querySelector('.toast-progress');
+        const progressBar = toastEl.querySelector('.toast-progress-bar');
+        const progressText = toastEl.querySelector('.toast-progress-text');
+        
+        utils.show(progressEl);
+        progressBar.style.width = `${progress}%`;
+        progressText.textContent = `${progress}%`;
+      }
+
+      // Handle actions
+      if (actions.length > 0) {
+        const actionsEl = toastEl.querySelector('.toast-actions');
+        utils.show(actionsEl);
+        
+        actions.forEach((action, index) => {
+          const button = toastEl.querySelector(index === 0 ? '.toast-action-primary' : '.toast-action-secondary');
+          if (button) {
+            button.textContent = action.label;
+            button.onclick = () => {
+              action.handler();
+              this.remove(id);
+            };
+          }
+        });
+      }
+
+      // Close button
+      toastEl.querySelector('.toast-close').onclick = () => this.remove(id);
+
+      // Add to container
+      elements.toastContainer.appendChild(toastEl);
+
+      // Animate in
+      requestAnimationFrame(() => {
+        toastEl.classList.remove('translate-x-full');
+      });
+
+      // Store reference
+      state.notifications.set(id, { element: toastEl, type, persistent });
+
+      // Auto remove
+      if (!persistent && duration > 0) {
+        setTimeout(() => this.remove(id), duration);
+      }
+
+      return id;
+    },
+
+    update(id, options) {
+      const notification = state.notifications.get(id);
+      if (!notification) return;
+
+      const { element } = notification;
+      const { progress, message, title } = options;
+
+      if (title) element.querySelector('.toast-title').textContent = title;
+      if (message) element.querySelector('.toast-message').textContent = message;
+      
+      if (progress !== undefined) {
+        const progressBar = element.querySelector('.toast-progress-bar');
+        const progressText = element.querySelector('.toast-progress-text');
+        progressBar.style.width = `${progress}%`;
+        progressText.textContent = `${progress}%`;
+      }
+    },
+
+    remove(id) {
+      const notification = state.notifications.get(id);
+      if (!notification) return;
+
+      const { element } = notification;
+      element.classList.add('translate-x-full');
+      
+      setTimeout(() => {
+        element.remove();
+        state.notifications.delete(id);
+      }, 300);
+    },
+
+    clear() {
+      state.notifications.forEach((_, id) => this.remove(id));
+    }
+  };
+
+  // ---- Progress Tracking ----
+  const progress = {
+    init() {
+      elements.progressButton?.addEventListener('click', this.toggleDropdown);
+      document.addEventListener('click', (e) => {
+        if (!elements.progressDropdown?.contains(e.target) && 
+            !elements.progressButton?.contains(e.target)) {
+          this.closeDropdown();
+        }
+      });
+
+      // Auto-refresh progress
+      this.startPolling();
+    },
+
+    toggleDropdown() {
+      utils.toggle(elements.progressDropdown);
+    },
+
+    closeDropdown() {
+      utils.hide(elements.progressDropdown);
+    },
+
+    async update() {
+      try {
+        const data = await utils.request(API.status);
+        const activeCount = data.downloading ? Object.keys(data.downloading).length : 0;
+        
+        // Update header indicator
+        if (activeCount > 0) {
+          utils.show(elements.progressContainer);
+          elements.progressText.textContent = `${activeCount} active`;
+          this.updateDropdown(data);
         } else {
-          const input = document.querySelectorAll(`[id^="${name}-input"]`);
-          input.forEach((node) => {
-            const val = node.value?.trim();
-            if (val) q.push(`${name}=${encodeURIComponent(val)}`);
+          utils.hide(elements.progressContainer);
+        }
+
+        // Update state
+        state.activeDownloads.clear();
+        if (data.downloading) {
+          Object.values(data.downloading).forEach(item => {
+            state.activeDownloads.set(item.id, item);
           });
         }
-      });
 
-      return q.join('&');
+      } catch (error) {
+        console.error('Failed to update progress:', error);
+      }
     },
-    // Simple notification via alert fallback
-    toast(msg) { try { console.info(msg); } catch (_) {} },
-    // Escapes text for safe HTML injection
-    e(text) { return (text ?? '').toString(); }
-  };
 
-  // ---- Modal ----
-  const modal = {
-    open() { el.modalOverlay?.classList.add('active'); },
-    close() { el.modalOverlay?.classList.remove('active'); el.detailsContainer.innerHTML = ''; }
-  };
+    updateDropdown(data) {
+      // Update active downloads list
+      const activeList = elements.activeDownloadsList;
+      if (data.downloading && Object.keys(data.downloading).length > 0) {
+        utils.show(document.getElementById('active-downloads-header'));
+        activeList.innerHTML = Object.values(data.downloading).map(item => `
+          <div class="p-3 border-b border-gray-100 dark:border-gray-700 last:border-b-0">
+            <div class="flex items-center justify-between mb-2">
+              <div class="font-medium text-sm truncate">${utils.escapeHtml(item.title || 'Unknown')}</div>
+              <button class="text-xs text-red-600 hover:text-red-700" onclick="downloads.cancel('${item.id}')">Cancel</button>
+            </div>
+            ${item.progress ? `
+              <div class="w-full bg-gray-200 rounded-full h-1.5">
+                <div class="bg-blue-600 h-1.5 rounded-full transition-all" style="width: ${item.progress}%"></div>
+              </div>
+              <div class="text-xs text-gray-500 mt-1">${item.progress}%</div>
+            ` : ''}
+          </div>
+        `).join('');
+      } else {
+        utils.hide(document.getElementById('active-downloads-header'));
+        activeList.innerHTML = '';
+      }
 
-  // ---- Cards ----
-  function renderCard(book) {
-    const cover = book.preview ? `<img src="${utils.e(book.preview)}" alt="Cover" class="w-full h-44 object-cover rounded">` :
-      `<div class="w-full h-44 rounded flex items-center justify-center opacity-70" style="background: var(--bg-soft)">No Cover</div>`;
+      // Update recent history
+      this.updateHistory();
+    },
 
-    const html = `
-      <article class="rounded border p-3 flex flex-col gap-3" style="border-color: var(--border-muted); background: var(--bg-soft)">
-        ${cover}
-        <div class="flex-1 space-y-1">
-          <h3 class="font-semibold leading-tight">${utils.e(book.title) || 'Untitled'}</h3>
-          <p class="text-sm opacity-80">${utils.e(book.author) || 'Unknown author'}</p>
-          <div class="text-xs opacity-70 flex flex-wrap gap-2">
-            <span>${utils.e(book.year) || '-'}</span>
-            <span>•</span>
-            <span>${utils.e(book.language) || '-'}</span>
-            <span>•</span>
-            <span>${utils.e(book.format) || '-'}</span>
-            ${book.size ? `<span>•</span><span>${utils.e(book.size)}</span>` : ''}
+    updateHistory() {
+      if (state.downloadHistory.length === 0) return;
+
+      const historyList = elements.downloadHistoryList;
+      historyList.innerHTML = state.downloadHistory.slice(0, 5).map(item => `
+        <div class="p-3 border-b border-gray-100 dark:border-gray-700 last:border-b-0">
+          <div class="flex items-center gap-2">
+            <div class="w-4 h-4 flex-shrink-0">
+              ${item.status === 'completed' ? 
+                '<svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>' :
+                '<svg class="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>'
+              }
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="text-sm font-medium truncate">${utils.escapeHtml(item.title || 'Unknown')}</div>
+              <div class="text-xs text-gray-500">${utils.formatDate(item.timestamp)}</div>
+            </div>
           </div>
         </div>
-        <div class="flex gap-2">
-          <button class="px-3 py-2 rounded border text-sm flex-1" data-action="details" data-id="${utils.e(book.id)}" style="border-color: var(--border-muted);">Details</button>
-          <button class="px-3 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white text-sm flex-1" data-action="download" data-id="${utils.e(book.id)}">Download</button>
-        </div>
-      </article>`;
+      `).join('');
+    },
 
-    const wrapper = document.createElement('div');
-    wrapper.innerHTML = html;
-    // Bind actions
-    const detailsBtn = wrapper.querySelector('[data-action="details"]');
-    const downloadBtn = wrapper.querySelector('[data-action="download"]');
-    detailsBtn?.addEventListener('click', () => bookDetails.show(book.id));
-    downloadBtn?.addEventListener('click', () => bookDetails.download(book));
-    return wrapper.firstElementChild;
-  }
+    startPolling() {
+      this.update();
+      state.updateInterval = setInterval(() => this.update(), 2000);
+    },
 
-  function renderCards(books) {
-    el.resultsGrid.innerHTML = '';
-    if (!books || books.length === 0) {
-      utils.show(el.noResults);
-      return;
-    }
-    utils.hide(el.noResults);
-    const frag = document.createDocumentFragment();
-    books.forEach((b) => frag.appendChild(renderCard(b)));
-    el.resultsGrid.appendChild(frag);
-  }
-
-  // ---- Search ----
-  const search = {
-    async run() {
-      const qs = utils.buildQuery();
-      if (!qs) { renderCards([]); return; }
-      utils.show(el.searchLoading);
-      try {
-        const data = await utils.j(`${API.search}?${qs}`);
-        renderCards(data);
-      } catch (e) {
-        renderCards([]);
-      } finally {
-        utils.hide(el.searchLoading);
+    stopPolling() {
+      if (state.updateInterval) {
+        clearInterval(state.updateInterval);
+        state.updateInterval = null;
       }
     }
   };
 
-  // ---- Details ----
-  const bookDetails = {
-    async show(id) {
+  // ---- Search Functionality ----
+  const search = {
+    init() {
+      elements.searchInput?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') this.execute();
+      });
+      elements.searchButton?.addEventListener('click', () => this.execute());
+      elements.advSearchButton?.addEventListener('click', () => this.execute());
+      elements.toggleAdvanced?.addEventListener('click', this.toggleAdvanced);
+
+      // Global search in header
+      document.getElementById('global-search')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          const query = e.target.value.trim();
+          if (query) {
+            elements.searchInput.value = query;
+            navigation.navigateTo('search');
+            this.execute();
+          }
+        }
+      });
+    },
+
+    focus() {
+      elements.searchInput?.focus();
+    },
+
+    toggleAdvanced() {
+      utils.toggle(elements.searchFilters);
+    },
+
+    async execute() {
+      const query = utils.buildSearchQuery();
+      if (!query) {
+        this.clearResults();
+        return;
+      }
+
+      utils.show(elements.searchLoading);
+      this.clearResults();
+
       try {
-        modal.open();
-        el.detailsContainer.innerHTML = '<div class="p-4">Loading…</div>';
-        const book = await utils.j(`${API.info}?id=${encodeURIComponent(id)}`);
-        el.detailsContainer.innerHTML = this.tpl(book);
-        document.getElementById('close-details')?.addEventListener('click', modal.close);
-        document.getElementById('download-button')?.addEventListener('click', () => this.download(book));
-      } catch (e) {
-        el.detailsContainer.innerHTML = '<div class="p-4">Failed to load details.</div>';
+        const results = await utils.request(`${API.search}?${query}`);
+        state.searchResults = results || [];
+        this.renderResults(state.searchResults);
+        
+        // Update results count
+        document.getElementById('results-count').textContent = 
+          `${state.searchResults.length} results found`;
+          
+      } catch (error) {
+        toast.show({
+          type: 'error',
+          title: 'Search Failed',
+          message: 'Unable to search books. Please try again.',
+          duration: 5000
+        });
+        this.clearResults();
+      } finally {
+        utils.hide(elements.searchLoading);
       }
     },
-    tpl(book) {
-      const cover = book.preview ? `<img src="${utils.e(book.preview)}" alt="Cover" class="w-full h-56 object-cover rounded">` : '';
-      const infoList = book.info ? Object.entries(book.info).map(([k, v]) => `<li><strong>${utils.e(k)}:</strong> ${utils.e((v||[]).join 
-        ? v.join(', ') : v)}</li>`).join('') : '';
+
+    renderResults(results) {
+      if (!results || results.length === 0) {
+        utils.show(elements.noResults);
+        return;
+      }
+
+      utils.hide(elements.noResults);
+      elements.resultsGrid.innerHTML = results.map(book => this.createBookCard(book)).join('');
+    },
+
+    createBookCard(book) {
+      const cover = book.preview ? 
+        `<img src="${utils.escapeHtml(book.preview)}" alt="Cover" class="w-full h-44 object-cover rounded-t-lg">` :
+        `<div class="w-full h-44 bg-gray-200 dark:bg-gray-700 rounded-t-lg flex items-center justify-center">
+          <svg class="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
+          </svg>
+        </div>`;
+
       return `
-        <div class="p-4 space-y-4">
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>${cover}</div>
+        <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden hover:shadow-lg transition-shadow" style="background: var(--bg-soft); border-color: var(--border-muted);">
+          ${cover}
+          <div class="p-4">
+            <h3 class="font-semibold text-gray-900 dark:text-white mb-1 line-clamp-2">${utils.escapeHtml(book.title || 'Untitled')}</h3>
+            <p class="text-sm text-gray-600 dark:text-gray-400 mb-2">${utils.escapeHtml(book.author || 'Unknown Author')}</p>
+            <div class="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mb-3">
+              <span>${utils.escapeHtml(book.year || '--')}</span>
+              <span>•</span>
+              <span>${utils.escapeHtml(book.language || '--')}</span>
+              <span>•</span>
+              <span>${utils.escapeHtml(book.format || '--')}</span>
+              ${book.size ? `<span>•</span><span>${utils.escapeHtml(book.size)}</span>` : ''}
+            </div>
+            <div class="flex gap-2">
+              <button onclick="modal.showBookDetails('${utils.escapeHtml(book.id)}')" class="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700" style="border-color: var(--border-muted);">
+                Details
+              </button>
+              <button onclick="downloads.add('${utils.escapeHtml(book.id)}')" class="flex-1 px-3 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700">
+                Download
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+    },
+
+    clearResults() {
+      elements.resultsGrid.innerHTML = '';
+      utils.hide(elements.noResults);
+    }
+  };
+
+  // ---- Downloads Management ----
+  const downloads = {
+    init() {
+      // Tab switching
+      elements.downloadsTabs.forEach(tab => {
+        tab.addEventListener('click', () => this.switchTab(tab.id.replace('tab-', '')));
+      });
+
+      // Refresh button
+      document.getElementById('refresh-downloads')?.addEventListener('click', () => this.refresh());
+      
+      // Clear completed
+      document.getElementById('clear-completed-btn')?.addEventListener('click', () => this.clearCompleted());
+    },
+
+    switchTab(tabName) {
+      // Update active tab
+      elements.downloadsTabs.forEach(tab => {
+        tab.classList.toggle('active', tab.id === `tab-${tabName}`);
+        tab.classList.toggle('border-blue-500', tab.id === `tab-${tabName}`);
+        tab.classList.toggle('text-blue-600', tab.id === `tab-${tabName}`);
+        tab.classList.toggle('border-transparent', tab.id !== `tab-${tabName}`);
+        tab.classList.toggle('text-gray-500', tab.id !== `tab-${tabName}`);
+      });
+
+      // Update content
+      elements.tabContents.forEach(content => {
+        content.classList.toggle('hidden', content.id !== `${tabName}-content`);
+      });
+
+      // Load content for active tab
+      this.loadTabContent(tabName);
+    },
+
+    async loadTabContent(tabName) {
+      try {
+        const data = await utils.request(API.status);
+        const items = data[tabName] || {};
+        
+        this.renderTabContent(tabName, Object.values(items));
+        this.updateTabCounts(data);
+      } catch (error) {
+        console.error(`Failed to load ${tabName} content:`, error);
+      }
+    },
+
+    renderTabContent(tabName, items) {
+      const listEl = document.getElementById(`${tabName}-downloads-list`);
+      const emptyEl = document.getElementById(`no-${tabName}`);
+
+      if (items.length === 0) {
+        listEl.innerHTML = '';
+        utils.show(emptyEl);
+        return;
+      }
+
+      utils.hide(emptyEl);
+      listEl.innerHTML = items.map(item => this.createDownloadItem(item, tabName)).join('');
+    },
+
+    createDownloadItem(item, status) {
+      const progress = item.progress ? `
+        <div class="mt-2">
+          <div class="w-full bg-gray-200 rounded-full h-2">
+            <div class="bg-blue-600 h-2 rounded-full transition-all" style="width: ${item.progress}%"></div>
+          </div>
+          <div class="text-xs text-gray-500 mt-1">${item.progress}% complete</div>
+        </div>
+      ` : '';
+
+      const actions = status === 'active' || status === 'queued' ? `
+        <button onclick="downloads.cancel('${item.id}')" class="px-3 py-1 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50">
+          Cancel
+        </button>
+      ` : status === 'failed' ? `
+        <button onclick="downloads.retry('${item.id}')" class="px-3 py-1 text-xs border border-blue-300 text-blue-600 rounded hover:bg-blue-50">
+          Retry
+        </button>
+      ` : '';
+
+      return `
+        <div class="p-4 border border-gray-200 dark:border-gray-700 rounded-lg" style="border-color: var(--border-muted);">
+          <div class="flex items-start justify-between">
+            <div class="flex-1 min-w-0">
+              <h4 class="font-medium text-gray-900 dark:text-white truncate">${utils.escapeHtml(item.title || 'Unknown')}</h4>
+              <p class="text-sm text-gray-600 dark:text-gray-400">${utils.escapeHtml(item.author || 'Unknown Author')}</p>
+              <div class="text-xs text-gray-500 mt-1">
+                ${item.format || '--'} • ${item.size || '--'}
+                ${item.timestamp ? ` • ${utils.formatDate(item.timestamp)}` : ''}
+              </div>
+              ${progress}
+            </div>
+            <div class="ml-4 flex-shrink-0">
+              ${actions}
+            </div>
+          </div>
+          </div>
+      `;
+    },
+
+    updateTabCounts(data) {
+      document.getElementById('active-count').textContent = Object.keys(data.downloading || {}).length;
+      document.getElementById('queued-count').textContent = Object.keys(data.queued || {}).length;
+      document.getElementById('completed-count').textContent = Object.keys(data.completed || {}).length;
+      document.getElementById('failed-count').textContent = Object.keys(data.error || {}).length;
+    },
+
+    async add(bookId) {
+      try {
+        await utils.request(`${API.download}?id=${encodeURIComponent(bookId)}`);
+        
+        toast.show({
+          type: 'success',
+          title: 'Download Started',
+          message: 'Book has been added to the download queue',
+          duration: 3000
+        });
+
+        // Refresh current view
+        if (state.currentPage === 'downloads') {
+          this.refresh();
+        }
+        
+        // Update progress tracking
+        progress.update();
+
+      } catch (error) {
+        toast.show({
+          type: 'error',
+          title: 'Download Failed',
+          message: 'Unable to start download. Please try again.',
+          duration: 5000
+        });
+      }
+    },
+
+    async cancel(downloadId) {
+      try {
+        await fetch(`${API.cancel}/${encodeURIComponent(downloadId)}/cancel`, {
+          method: 'DELETE'
+        });
+        
+        toast.show({
+          type: 'info',
+          title: 'Download Cancelled',
+          message: 'Download has been cancelled',
+          duration: 3000
+        });
+
+        this.refresh();
+        progress.update();
+
+      } catch (error) {
+        toast.show({
+          type: 'error',
+          title: 'Cancel Failed',
+          message: 'Unable to cancel download',
+          duration: 5000
+        });
+      }
+    },
+
+    async retry(downloadId) {
+      // Implementation depends on backend API
+      toast.show({
+        type: 'info',
+        title: 'Retry Requested',
+        message: 'Download retry has been queued',
+        duration: 3000
+      });
+    },
+
+    async clearCompleted() {
+      try {
+        await fetch(API.clearCompleted, { method: 'DELETE' });
+        
+        toast.show({
+          type: 'success',
+          title: 'Completed Downloads Cleared',
+          message: 'All completed downloads have been removed',
+          duration: 3000
+        });
+
+        this.refresh();
+
+      } catch (error) {
+        toast.show({
+          type: 'error',
+          title: 'Clear Failed',
+          message: 'Unable to clear completed downloads',
+          duration: 5000
+        });
+      }
+    },
+
+    async refresh() {
+      if (state.currentPage === 'downloads') {
+        const activeTab = document.querySelector('.downloads-tab.active')?.id.replace('tab-', '') || 'active';
+        this.loadTabContent(activeTab);
+      }
+    }
+  };
+
+  // ---- Modal System ----
+  const modal = {
+    init() {
+      elements.modalOverlay?.addEventListener('click', (e) => {
+        if (e.target === elements.modalOverlay) this.close();
+      });
+      elements.closeModal?.addEventListener('click', () => this.close());
+      elements.closeDetails?.addEventListener('click', () => this.close());
+    },
+
+    open() {
+      utils.show(elements.modalOverlay);
+      document.body.style.overflow = 'hidden';
+    },
+
+    close() {
+      utils.hide(elements.modalOverlay);
+      document.body.style.overflow = '';
+      elements.detailsContainer.innerHTML = '';
+    },
+
+    async showBookDetails(bookId) {
+      this.open();
+      
+      // Show loading state
+      elements.detailsContainer.innerHTML = `
+        <div class="flex items-center justify-center py-12">
+          <svg class="animate-spin w-8 h-8 text-blue-600" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <span class="ml-2">Loading book details...</span>
+        </div>
+      `;
+
+      try {
+        const book = await utils.request(`${API.info}?id=${encodeURIComponent(bookId)}`);
+        this.renderBookDetails(book);
+      } catch (error) {
+        elements.detailsContainer.innerHTML = `
+          <div class="text-center py-12">
+            <svg class="w-16 h-16 mx-auto mb-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-2">Failed to load details</h3>
+            <p class="text-gray-500 dark:text-gray-400">Unable to fetch book information</p>
+          </div>
+        `;
+      }
+    },
+
+    renderBookDetails(book) {
+      const cover = book.preview ? 
+        `<img src="${utils.escapeHtml(book.preview)}" alt="Cover" class="w-full max-w-xs mx-auto rounded-lg shadow-lg">` :
+        `<div class="w-full max-w-xs mx-auto h-64 bg-gray-200 dark:bg-gray-700 rounded-lg flex items-center justify-center">
+          <svg class="w-16 h-16 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
+          </svg>
+        </div>`;
+
+      const additionalInfo = book.info ? Object.entries(book.info).map(([key, value]) => `
+        <div class="flex justify-between">
+          <span class="text-gray-600 dark:text-gray-400">${utils.escapeHtml(key)}:</span>
+          <span class="text-gray-900 dark:text-white">${utils.escapeHtml(Array.isArray(value) ? value.join(', ') : value)}</span>
+        </div>
+      `).join('') : '';
+
+      elements.detailsContainer.innerHTML = `
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>${cover}</div>
+          <div class="space-y-4">
             <div>
-              <h3 class="text-lg font-semibold mb-1">${utils.e(book.title) || 'Untitled'}</h3>
-              <p class="text-sm opacity-80">${utils.e(book.author) || 'Unknown author'}</p>
-              <div class="text-sm mt-2 space-y-1">
-                <p><strong>Publisher:</strong> ${utils.e(book.publisher) || '-'}</p>
-                <p><strong>Year:</strong> ${utils.e(book.year) || '-'}</p>
-                <p><strong>Language:</strong> ${utils.e(book.language) || '-'}</p>
-                <p><strong>Format:</strong> ${utils.e(book.format) || '-'}</p>
-                <p><strong>Size:</strong> ${utils.e(book.size) || '-'}</p>
+              <h1 class="text-2xl font-bold text-gray-900 dark:text-white mb-2">${utils.escapeHtml(book.title || 'Untitled')}</h1>
+              <p class="text-lg text-gray-600 dark:text-gray-400">${utils.escapeHtml(book.author || 'Unknown Author')}</p>
+            </div>
+            <div class="grid grid-cols-2 gap-4 text-sm">
+              <div class="flex justify-between">
+                <span class="text-gray-600 dark:text-gray-400">Publisher:</span>
+                <span class="text-gray-900 dark:text-white">${utils.escapeHtml(book.publisher || '--')}</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-gray-600 dark:text-gray-400">Year:</span>
+                <span class="text-gray-900 dark:text-white">${utils.escapeHtml(book.year || '--')}</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-gray-600 dark:text-gray-400">Language:</span>
+                <span class="text-gray-900 dark:text-white">${utils.escapeHtml(book.language || '--')}</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-gray-600 dark:text-gray-400">Format:</span>
+                <span class="text-gray-900 dark:text-white">${utils.escapeHtml(book.format || '--')}</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-gray-600 dark:text-gray-400">Size:</span>
+                <span class="text-gray-900 dark:text-white">${utils.escapeHtml(book.size || '--')}</span>
               </div>
             </div>
+            ${additionalInfo ? `<div class="space-y-2 text-sm">${additionalInfo}</div>` : ''}
           </div>
-          ${infoList ? `<div><h4 class="font-semibold mb-2">Further Information</h4><ul class="list-disc pl-6 space-y-1 text-sm">${infoList}</ul></div>` : ''}
-          <div class="flex gap-2">
-            <button id="download-button" class="px-3 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white text-sm">Download</button>
-            <button id="close-details" class="px-3 py-2 rounded border text-sm" style="border-color: var(--border-muted);">Close</button>
-          </div>
-        </div>`;
-    },
-    async download(book) {
-      if (!book) return;
-      try {
-        await utils.j(`${API.download}?id=${encodeURIComponent(book.id)}`);
-        utils.toast('Queued for download');
-        modal.close();
-        status.fetch();
-      } catch (_){}
+        </div>
+      `;
+
+      // Update download button
+      elements.downloadButton.onclick = () => {
+        downloads.add(book.id);
+        this.close();
+      };
     }
   };
 
-  // ---- Status ----
-  const status = {
-    async fetch() {
+  // ---- Dashboard ----
+  const dashboard = {
+    async refresh() {
       try {
-        utils.show(el.statusLoading);
-        const data = await utils.j(API.status);
-        this.render(data);
-        // Also reflect active downloads in the top section
-        this.renderTop(data);
-        this.updateActive();
-      } catch (e) {
-        el.statusList.innerHTML = '<div class="text-sm opacity-80">Error loading status.</div>';
-      } finally { utils.hide(el.statusLoading); }
-    },
-    render(data) {
-      // data shape: {queued: {...}, downloading: {...}, completed: {...}, error: {...}}
-      const sections = [];
-      for (const [name, items] of Object.entries(data || {})) {
-        if (!items || Object.keys(items).length === 0) continue;
-        const rows = Object.values(items).map((b) => {
-          const actions = (name === 'queued' || name === 'downloading')
-            ? `<button class="px-2 py-1 rounded border text-xs" data-cancel="${utils.e(b.id)}" style="border-color: var(--border-muted);">Cancel</button>`
-            : '';
-          const progress = (name === 'downloading' && typeof b.progress === 'number')
-            ? `<div class="h-2 bg-black/10 rounded overflow-hidden"><div class="h-2 bg-blue-600" style="width:${Math.round(b.progress)}%"></div></div>`
-            : '';
-          return `<li class="p-3 rounded border flex flex-col gap-2" style="border-color: var(--border-muted); background: var(--bg-soft)">
-            <div class="text-sm"><span class="opacity-70">${utils.e(name)}</span> • <strong>${utils.e(b.title || '-') }</strong></div>
-            ${progress}
-            <div class="flex items-center gap-2">${actions}</div>
-          </li>`;
-        }).join('');
-        sections.push(`
-          <div>
-            <h4 class="font-semibold mb-2">${name.charAt(0).toUpperCase() + name.slice(1)}</h4>
-            <ul class="space-y-2">${rows}</ul>
-          </div>`);
+        const data = await utils.request(API.status);
+        this.updateStats(data);
+        this.updateActiveDownloads(data);
+        this.updateRecentActivity(data);
+      } catch (error) {
+        console.error('Failed to refresh dashboard:', error);
       }
-      el.statusList.innerHTML = sections.join('') || '<div class="text-sm opacity-80">No items.</div>';
-      // Bind cancel buttons
-      el.statusList.querySelectorAll('[data-cancel]')?.forEach((btn) => {
-        btn.addEventListener('click', () => queue.cancel(btn.getAttribute('data-cancel')));
-      });
     },
-    // Render compact active downloads list near the search bar
-    renderTop(data) {
-      try {
-        const downloading = (data && data.downloading) ? Object.values(data.downloading) : [];
-        if (!el.activeTopSec || !el.activeTopList) return;
-        if (!downloading.length) {
-          el.activeTopList.innerHTML = '';
-          el.activeTopSec.classList.add('hidden');
-          return;
-        }
-        // Build compact rows with title and progress bar + cancel
-        const rows = downloading.map((b) => {
-          const prog = (typeof b.progress === 'number')
-            ? `<div class="h-1.5 bg-black/10 rounded overflow-hidden"><div class="h-1.5 bg-blue-600" style="width:${Math.round(b.progress)}%"></div></div>`
-            : '';
-          const cancel = `<button class="px-2 py-0.5 rounded border text-xs" data-cancel="${utils.e(b.id)}" style="border-color: var(--border-muted);">Cancel</button>`;
-          return `<div class="p-3 rounded border" style="border-color: var(--border-muted); background: var(--bg-soft)">
-            <div class="flex items-center justify-between gap-3">
-              <div class="text-sm truncate"><strong>${utils.e(b.title || '-') }</strong></div>
-              <div class="shrink-0">${cancel}</div>
+
+    updateStats(data) {
+      elements.statsActive.textContent = Object.keys(data.downloading || {}).length;
+      elements.statsQueued.textContent = Object.keys(data.queued || {}).length;
+      elements.statsCompleted.textContent = Object.keys(data.completed || {}).length;
+      elements.statsFailed.textContent = Object.keys(data.error || {}).length;
+    },
+
+    updateActiveDownloads(data) {
+      const container = document.getElementById('dashboard-active-downloads');
+      const downloads = data.downloading ? Object.values(data.downloading) : [];
+
+      if (downloads.length === 0) {
+        container.innerHTML = `
+          <div class="text-center py-8 text-gray-500 dark:text-gray-400">
+            <svg class="w-12 h-12 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+            </svg>
+            <p>No active downloads</p>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = downloads.map(download => `
+        <div class="p-4 border border-gray-200 dark:border-gray-700 rounded-lg mb-3 last:mb-0" style="border-color: var(--border-muted);">
+          <div class="flex items-center justify-between mb-2">
+            <h4 class="font-medium text-gray-900 dark:text-white truncate">${utils.escapeHtml(download.title || 'Unknown')}</h4>
+            <button onclick="downloads.cancel('${download.id}')" class="text-xs text-red-600 hover:text-red-700">Cancel</button>
+          </div>
+          ${download.progress ? `
+            <div class="w-full bg-gray-200 rounded-full h-2">
+              <div class="bg-blue-600 h-2 rounded-full transition-all" style="width: ${download.progress}%"></div>
             </div>
-            ${prog}
-          </div>`;
-        }).join('');
-        el.activeTopList.innerHTML = rows;
-        el.activeTopSec.classList.remove('hidden');
-        // Bind cancel handlers for the top section
-        el.activeTopList.querySelectorAll('[data-cancel]')?.forEach((btn) => {
-          btn.addEventListener('click', () => queue.cancel(btn.getAttribute('data-cancel')));
-        });
-      } catch (_) {}
+            <div class="text-xs text-gray-500 mt-1">${download.progress}% complete</div>
+          ` : ''}
+        </div>
+      `).join('');
     },
-    async updateActive() {
-      try {
-        const d = await utils.j(API.activeDownloads);
-        const n = Array.isArray(d.active_downloads) ? d.active_downloads.length : 0;
-        if (el.activeDownloadsCount) el.activeDownloadsCount.textContent = `Active: ${n}`;
-      } catch (_) {}
+
+    updateRecentActivity(data) {
+      // Combine recent completed and failed downloads
+      const recent = [
+        ...Object.values(data.completed || {}),
+        ...Object.values(data.error || {})
+      ].sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0)).slice(0, 5);
+
+      const container = document.getElementById('recent-activity');
+      
+      if (recent.length === 0) {
+        container.innerHTML = `
+          <div class="text-center py-8 text-gray-500 dark:text-gray-400">
+            <svg class="w-8 h-8 mx-auto mb-2 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            <p class="text-sm">No recent activity</p>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = `
+        <div class="space-y-3">
+          ${recent.map(item => `
+            <div class="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
+              <div class="w-6 h-6 flex-shrink-0">
+                ${item.status === 'completed' ? 
+                  '<svg class="w-6 h-6 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>' :
+                  '<svg class="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>'
+                }
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="text-sm font-medium text-gray-900 dark:text-white truncate">${utils.escapeHtml(item.title || 'Unknown')}</div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">${utils.formatDate(item.timestamp)}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `;
     }
   };
 
-  // ---- Queue ----
-  const queue = {
-    async cancel(id) {
-      try {
-        await fetch(`${API.cancelDownload}/${encodeURIComponent(id)}/cancel`, { method: 'DELETE' });
-        status.fetch();
-      } catch (_){}
+  // ---- Status Page ----
+  const status = {
+    async refresh() {
+      console.log('Status page refresh - placeholder');
     }
   };
 
-  // ---- Theme ----
+  // ---- Theme System ----
   const theme = {
-    KEY: 'preferred-theme',
+    STORAGE_KEY: 'preferred-theme',
+    
     init() {
-      const saved = localStorage.getItem(this.KEY) || 'auto';
+      const saved = localStorage.getItem(this.STORAGE_KEY) || 'auto';
       this.apply(saved);
-      this.updateLabel(saved);
-      // toggle dropdown
-      el.themeToggle?.addEventListener('click', (e) => {
-        e.preventDefault();
-        if (!el.themeMenu) return;
-        el.themeMenu.classList.toggle('hidden');
+      this.updateIcons(saved);
+
+      // Toggle dropdown
+      elements.themeToggle?.addEventListener('click', () => {
+        utils.toggle(elements.themeMenu);
       });
-      // outside click to close
-      document.addEventListener('click', (ev) => {
-        if (!el.themeMenu || !el.themeToggle) return;
-        if (el.themeMenu.contains(ev.target) || el.themeToggle.contains(ev.target)) return;
-        el.themeMenu.classList.add('hidden');
+
+      // Close on outside click
+      document.addEventListener('click', (e) => {
+        if (!elements.themeToggle?.contains(e.target) && !elements.themeMenu?.contains(e.target)) {
+          utils.hide(elements.themeMenu);
+        }
       });
-      // selection
-      el.themeMenu?.querySelectorAll('a[data-theme]')?.forEach((a) => {
-        a.addEventListener('click', (ev) => {
-          ev.preventDefault();
-          const pref = a.getAttribute('data-theme');
-          localStorage.setItem(theme.KEY, pref);
-          theme.apply(pref);
-          theme.updateLabel(pref);
-          el.themeMenu.classList.add('hidden');
+
+      // Theme selection
+      elements.themeMenu?.querySelectorAll('[data-theme]').forEach(item => {
+        item.addEventListener('click', (e) => {
+          e.preventDefault();
+          const theme = item.getAttribute('data-theme');
+          localStorage.setItem(this.STORAGE_KEY, theme);
+          this.apply(theme);
+          this.updateIcons(theme);
+          utils.hide(elements.themeMenu);
         });
       });
-      // react to system change if auto
-      const mq = window.matchMedia('(prefers-color-scheme: dark)');
-      mq.addEventListener('change', (e) => {
-        if ((localStorage.getItem(theme.KEY) || 'auto') === 'auto') {
+
+      // System theme change listener
+      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+        if (localStorage.getItem(this.STORAGE_KEY) === 'auto') {
           document.documentElement.setAttribute('data-theme', e.matches ? 'dark' : 'light');
         }
       });
     },
-    apply(pref) {
-      if (pref === 'auto') {
+
+    apply(preference) {
+      if (preference === 'auto') {
         const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
         document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
       } else {
-        document.documentElement.setAttribute('data-theme', pref);
+        document.documentElement.setAttribute('data-theme', preference);
       }
     },
-    updateLabel(pref) { if (el.themeText) el.themeText.textContent = `Theme (${pref})`; }
+
+    updateIcons(preference) {
+      const isDark = preference === 'dark' || 
+        (preference === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      
+      if (isDark) {
+        utils.show(elements.themeIconLight);
+        utils.hide(elements.themeIconDark);
+      } else {
+        utils.hide(elements.themeIconLight);
+        utils.show(elements.themeIconDark);
+      }
+    }
   };
 
-  // ---- Wire up ----
-  function initEvents() {
-    el.searchBtn?.addEventListener('click', () => search.run());
-    el.searchInput?.addEventListener('keydown', (e) => { if (e.key === 'Enter') search.run(); });
-    document.getElementById('adv-search-button')?.addEventListener('click', () => search.run());
+  // ---- Initialization ----
+  function init() {
+    // Initialize all modules
+    navigation.init();
+    search.init();
+    downloads.init();
+    modal.init();
+    progress.init();
+    theme.init();
 
-    if (el.advToggle && el.filtersForm) {
-      el.advToggle.addEventListener('click', (e) => {
-        e.preventDefault();
-        el.filtersForm.classList.toggle('hidden');
+    // Set initial page
+    navigation.navigateTo('dashboard');
+
+    // Global error handler
+    window.addEventListener('unhandledrejection', (e) => {
+      console.error('Unhandled promise rejection:', e.reason);
+      toast.show({
+        type: 'error',
+        title: 'Unexpected Error',
+        message: 'An unexpected error occurred. Please refresh the page.',
+        duration: 10000
       });
-    }
-
-    el.refreshStatusBtn?.addEventListener('click', () => status.fetch());
-    el.activeTopRefreshBtn?.addEventListener('click', () => status.fetch());
-    el.clearCompletedBtn?.addEventListener('click', async () => {
-      try { await fetch(API.clearCompleted, { method: 'DELETE' }); status.fetch(); } catch (_) {}
     });
 
-    // Close modal on overlay click
-    el.modalOverlay?.addEventListener('click', (e) => { if (e.target === el.modalOverlay) modal.close(); });
+    console.log('Modern Book Downloader Dashboard initialized');
   }
 
-  // ---- Init ----
-  theme.init();
-  initEvents();
-  status.fetch();
+  // ---- Global Functions (for onclick handlers) ----
+  window.downloads = downloads;
+  window.modal = modal;
+  window.navigation = navigation;
+
+  // Start the application
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
 })();

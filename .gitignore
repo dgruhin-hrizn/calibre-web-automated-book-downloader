@@ -227,3 +227,6 @@ pyrightconfig.json
 
 # End of https://www.toptal.com/developers/gitignore/api/macos,visualstudiocode,python
 /downloaded_files
+
+# Google Books API settings (contains API key)
+google_books_settings.json
