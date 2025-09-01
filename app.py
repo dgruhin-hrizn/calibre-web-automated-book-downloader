@@ -20,7 +20,6 @@ import backend
 from cwa_client import CWAClient
 from cwa_settings import cwa_settings
 from cwa_proxy import CWAProxy, create_cwa_proxy_routes, create_opds_routes
-from database_manager import LocalDatabaseManager
 
 from models import SearchFilters
 
@@ -36,20 +35,6 @@ CORS(app,
      supports_credentials=True,
      allow_headers=['Content-Type', 'Authorization'],
      methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
-
-# Initialize database manager for direct Calibre metadata access
-db_manager = None
-try:
-    metadata_db_path = "/Volumes/2TBSSD/working/Book Backup/metadata.db"
-    if os.path.exists(metadata_db_path):
-        db_manager = LocalDatabaseManager(metadata_db_path, refresh_interval=300)  # 5 minutes
-        db_manager.start_auto_refresh()
-        logger.info(f"Database manager initialized: {metadata_db_path}")
-    else:
-        logger.warning(f"Metadata database not found: {metadata_db_path}")
-except Exception as e:
-    logger.error(f"Failed to initialize database manager: {e}")
-    db_manager = None
 
 # Flask logger
 app.logger.handlers = logger.handlers
@@ -1168,81 +1153,7 @@ def api_cwa_categories():
 
 # Direct library API endpoints removed - using CWA proxy instead
 
-# Direct database access API endpoints
-@app.route('/api/db/stats', methods=['GET'])
-@login_required
-def api_db_stats():
-    """Get library statistics from direct database access"""
-    if not db_manager:
-        return jsonify({'error': 'Database manager not available'}), 503
-    
-    try:
-        stats = db_manager.get_library_stats()
-        if stats is None:
-            return jsonify({'error': 'Failed to fetch library stats'}), 500
-        
-        return jsonify(stats)
-    except Exception as e:
-        logger.error(f"Error fetching database stats: {e}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/db/books', methods=['GET'])
-@login_required
-def api_db_books():
-    """Get books from direct database access"""
-    if not db_manager:
-        return jsonify({'error': 'Database manager not available'}), 503
-    
-    try:
-        # Get query parameters
-        limit = min(int(request.args.get('limit', 50)), 200)  # Max 200 books
-        offset = int(request.args.get('offset', 0))
-        search_term = request.args.get('search', '').strip()
-        
-        books = db_manager.get_books(
-            limit=limit,
-            offset=offset,
-            search_term=search_term if search_term else None
-        )
-        
-        return jsonify({
-            'books': books,
-            'count': len(books),
-            'limit': limit,
-            'offset': offset,
-            'search_term': search_term
-        })
-        
-    except Exception as e:
-        logger.error(f"Error fetching database books: {e}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/db/refresh', methods=['POST'])
-@login_required
-def api_db_refresh():
-    """Manually refresh the database copy"""
-    if not db_manager:
-        return jsonify({'error': 'Database manager not available'}), 503
-    
-    try:
-        db_manager.refresh_local_copy()
-        return jsonify({'message': 'Database copy refreshed successfully'})
-    except Exception as e:
-        logger.error(f"Error refreshing database: {e}")
-        return jsonify({'error': str(e)}), 500
-
 logger.log_resource_usage()
-
-# Cleanup on app shutdown
-import atexit
-
-def cleanup_database_manager():
-    """Clean up database manager on app shutdown"""
-    if db_manager:
-        db_manager.cleanup()
-        logger.info("Database manager cleaned up")
-
-atexit.register(cleanup_database_manager)
 
 if __name__ == '__main__':
     logger.info(f"Starting Flask application on {FLASK_HOST}:{FLASK_PORT} IN {APP_ENV} mode")
