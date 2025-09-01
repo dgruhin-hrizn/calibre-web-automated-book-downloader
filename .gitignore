@@ -233,3 +233,6 @@ google_books_settings.json
 
 # CWA settings (contains passwords)
 cwa_settings.json
+
+# CWA reference directory (contains full Calibre-Web instance)
+cwa-reference/
