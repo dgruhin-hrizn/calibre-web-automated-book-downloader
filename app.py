@@ -39,8 +39,14 @@ app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = 86400  # 24 hours
 
 # Enable CORS for React frontend
+# In production, CORS isn't needed since frontend is served from same origin
+# In development, allow localhost origins for Vite dev server
+cors_origins = []
+if APP_ENV in ['development', 'dev']:
+    cors_origins = ['http://localhost:5173', 'http://127.0.0.1:5173']
+
 CORS(app, 
-     origins=['http://localhost:5173', 'http://127.0.0.1:5173'],
+     origins=cors_origins,
      supports_credentials=True,
      allow_headers=['Content-Type', 'Authorization'],
      methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
@@ -129,6 +135,10 @@ def require_cwa_client():
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        # Skip authentication if DISABLE_AUTH is set (for testing/development)
+        if os.environ.get('DISABLE_AUTH', 'false').lower() == 'true':
+            return f(*args, **kwargs)
+            
         # If the CWA_DB_PATH variable exists, but isn't a valid
         # path, return a server error
         if CWA_DB_PATH is not None and not os.path.isfile(CWA_DB_PATH):
@@ -231,6 +241,26 @@ def index() -> str:
 def react_assets(filename):
     """Serve React build assets."""
     return send_from_directory(os.path.join(app.root_path, 'frontend', 'dist', 'assets'), filename)
+
+# Catch-all route for React Router (SPA routing)
+@app.route('/<path:path>')
+@login_required
+def catch_all(path):
+    """
+    Catch-all route to serve React app for client-side routing.
+    This ensures that React Router can handle routes like /search, /downloads, etc.
+    """
+    # Skip API routes and other backend routes
+    if path.startswith(('api/', 'static/', 'assets/', 'request/', 'opds/')):
+        return "Not Found", 404
+    
+    # Check if we have a built React app
+    react_build_path = os.path.join(app.root_path, 'frontend', 'dist', 'index.html')
+    if os.path.exists(react_build_path):
+        return send_file(react_build_path)
+    
+    # Fallback to 404 if no React build found
+    return "Frontend not built", 404
 
  
 

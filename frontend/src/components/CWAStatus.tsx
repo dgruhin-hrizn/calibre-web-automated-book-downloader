@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
 import { Badge } from './ui/badge'
-import { Button } from './ui/button'
+import { Button } from './ui/Button'
 import { Loader2, CheckCircle, XCircle, RefreshCw } from 'lucide-react'
 import { apiRequest } from '../lib/utils'
 
