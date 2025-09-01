@@ -1,13 +1,11 @@
 import { useState, useCallback } from 'react'
-import { Download, Pause, Play, X, RotateCcw, AlertCircle, Activity, BarChart3, Clock } from 'lucide-react'
-import { Button } from '../components/ui/Button'
-import { BookCover } from '../components/ui/BookCover'
+import { Download, AlertCircle, Activity, BarChart3, Clock } from 'lucide-react'
+
 import { QueueItem } from '../components/QueueItem'
 import { DraggableQueueItem } from '../components/DraggableQueueItem'
 import { QueueControls } from '../components/QueueControls'
 import * as Tabs from '@radix-ui/react-tabs'
 import { useDownloadStatus, useCancelDownload, useClearCompleted } from '../hooks/useDownloads'
-import { formatDate } from '../lib/utils'
 
 export function Downloads() {
   // All hooks must be called at the top level, before any early returns
@@ -20,6 +18,63 @@ export function Downloads() {
   const [currentFilter, setCurrentFilter] = useState<'all' | 'downloading' | 'queued' | 'completed' | 'failed'>('all')
   const [selectedTab, setSelectedTab] = useState('queue')
   const [draggedItems, setDraggedItems] = useState<any[]>([]) // Local state for drag operations
+
+  // Process data for rendering (safe to do before early returns)
+  const downloads = {
+    active: Object.values(statusData?.downloading || {}),
+    processing: Object.values(statusData?.processing || {}),
+    waiting: Object.values(statusData?.waiting || {}),
+    queued: Object.values(statusData?.queued || {}),
+    completed: [
+      ...Object.values(statusData?.done || {}),
+      ...Object.values(statusData?.available || {})
+    ],
+    failed: Object.values(statusData?.error || {}),
+    cancelled: Object.values(statusData?.cancelled || {})
+  }
+
+  const queueItems = [
+    ...downloads.active.map((item: any) => ({ ...item, status: 'downloading' })),
+    ...downloads.processing.map((item: any) => ({ ...item, status: 'processing' })),
+    ...downloads.waiting.map((item: any) => ({ ...item, status: 'waiting' })),
+    ...downloads.queued.map((item: any) => ({ ...item, status: 'queued' })),
+    ...downloads.completed.map((item: any) => ({ ...item, status: 'completed' })),
+    ...downloads.failed.map((item: any) => ({ ...item, status: 'failed' })),
+    ...downloads.cancelled.map((item: any) => ({ ...item, status: 'cancelled' }))
+  ]
+
+  const filteredItems = queueItems.filter(item => {
+    if (currentFilter === 'all') return true
+    return item.status === currentFilter
+  })
+
+  const sortedItems = [...filteredItems].sort((a, b) => {
+    switch (currentSort) {
+      case 'priority':
+        return (a.position || 0) - (b.position || 0)
+      case 'date':
+        return new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime()
+      case 'title':
+        return (a.title || '').localeCompare(b.title || '')
+      case 'author':
+        return (a.author || '').localeCompare(b.author || '')
+      default:
+        return 0
+    }
+  })
+
+  // Drag & Drop handler - moved to top level with other hooks
+  const moveItem = useCallback((dragIndex: number, hoverIndex: number) => {
+    const items = draggedItems.length > 0 ? draggedItems : sortedItems
+    const draggedItem = items[dragIndex]
+    const newItems = [...items]
+    newItems.splice(dragIndex, 1)
+    newItems.splice(hoverIndex, 0, draggedItem)
+    setDraggedItems(newItems)
+    
+    // TODO: Update backend queue order
+    console.log('Moved item from position', dragIndex, 'to', hoverIndex)
+  }, [draggedItems, sortedItems])
 
   // Queue management handlers
   const handleCancel = (bookId: string) => {
@@ -50,12 +105,12 @@ export function Downloads() {
     // TODO: Implement priority setting
     console.log('Set priority:', bookId, priority)
   }
-  
+
   const handleClearCompleted = () => {
     clearCompleted.mutate()
   }
 
-  // Handle loading and error states first
+  // Handle loading and error states after all hooks are called
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -72,84 +127,6 @@ export function Downloads() {
       </div>
     )
   }
-
-  const downloads = {
-    active: Object.values(statusData?.downloading || {}),
-    processing: Object.values(statusData?.processing || {}),
-    waiting: Object.values(statusData?.waiting || {}),
-    queued: Object.values(statusData?.queued || {}),
-    completed: [
-      ...Object.values(statusData?.available || {}),
-      ...Object.values(statusData?.done || {})
-    ],
-    failed: Object.values(statusData?.error || {}),
-  }
-
-  // Create queue items with position information
-  const queueItems = [
-    ...downloads.active.map((item, index) => ({ 
-      ...item, 
-      status: 'downloading', 
-      position: index + 1,
-      coverUrl: item.preview 
-    })),
-    ...downloads.processing.map((item, index) => ({ 
-      ...item, 
-      status: 'processing', 
-      position: downloads.active.length + index + 1,
-      coverUrl: item.preview 
-    })),
-    ...downloads.waiting.map((item, index) => ({ 
-      ...item, 
-      status: 'waiting', 
-      position: downloads.active.length + downloads.processing.length + index + 1,
-      coverUrl: item.preview,
-      waitTime: item.wait_time,
-      waitStart: item.wait_start
-    })),
-    ...downloads.queued.map((item, index) => ({ 
-      ...item, 
-      status: 'queued', 
-      position: downloads.active.length + downloads.processing.length + downloads.waiting.length + index + 1,
-      coverUrl: item.preview 
-    }))
-  ]
-
-  // Filter and sort queue items
-  const filteredItems = queueItems.filter(item => {
-    if (currentFilter === 'all') return true
-    return item.status === currentFilter
-  })
-
-  const sortedItems = [...filteredItems].sort((a, b) => {
-    switch (currentSort) {
-      case 'priority':
-        return (a.position || 0) - (b.position || 0)
-      case 'date':
-        return new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime()
-      case 'title':
-        return (a.title || '').localeCompare(b.title || '')
-      case 'author':
-        return (a.author || '').localeCompare(b.author || '')
-      default:
-        return 0
-    }
-  })
-
-  // Drag & Drop handler
-  const moveItem = useCallback((dragIndex: number, hoverIndex: number) => {
-    const items = draggedItems.length > 0 ? draggedItems : sortedItems
-    const draggedItem = items[dragIndex]
-    const newItems = [...items]
-    newItems.splice(dragIndex, 1)
-    newItems.splice(hoverIndex, 0, draggedItem)
-    setDraggedItems(newItems)
-    
-    // TODO: Update backend queue order
-    console.log('Moved item from position', dragIndex, 'to', hoverIndex)
-  }, [draggedItems, sortedItems])
-
-
 
   return (
     <div className="space-y-6">
@@ -284,7 +261,7 @@ export function Downloads() {
               download={{
                 ...download,
                 status: 'completed',
-                coverUrl: download.preview
+                coverUrl: download.preview || undefined
               }}
             />
           ))}
@@ -304,7 +281,7 @@ export function Downloads() {
               download={{
                 ...download,
                 status: 'error',
-                coverUrl: download.preview
+                coverUrl: download.preview || undefined
               }}
               onCancel={handleCancel}
             />

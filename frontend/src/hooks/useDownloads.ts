@@ -32,6 +32,7 @@ export interface DownloadStatus {
   timestamp?: string
   wait_time?: number      // Total wait time in seconds
   wait_start?: number     // When waiting started (timestamp)
+  preview?: string        // Cover image URL
 }
 
 export interface StatusResponse {
