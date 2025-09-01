@@ -230,3 +230,6 @@ pyrightconfig.json
 
 # Google Books API settings (contains API key)
 google_books_settings.json
+
+# CWA settings (contains passwords)
+cwa_settings.json

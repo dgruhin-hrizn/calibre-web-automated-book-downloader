@@ -63,4 +63,9 @@ if USING_TOR:
     USE_DOH = False
     HTTP_PROXY = ""
     HTTPS_PROXY = ""
+
+# CWA Integration Settings
+CWA_BASE_URL = os.getenv("CWA_BASE_URL", "http://localhost:8083")
+CWA_USERNAME = os.getenv("CWA_USERNAME", "")
+CWA_PASSWORD = os.getenv("CWA_PASSWORD", "")
     

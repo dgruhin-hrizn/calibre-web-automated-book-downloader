@@ -12,6 +12,7 @@ import { Dashboard } from './pages/Dashboard'
 import { Search } from './pages/Search'
 import { Downloads } from './pages/Downloads'
 import { Settings } from './pages/Settings'
+import Library from './pages/Library'
 import { ToastProvider } from './components/ui/ToastProvider'
 
 const queryClient = new QueryClient({
@@ -69,6 +70,7 @@ function App() {
                         <Routes>
                           <Route path="/" element={<Dashboard />} />
                           <Route path="/search" element={<Search />} />
+                          <Route path="/library" element={<Library />} />
                           <Route path="/downloads" element={<Downloads />} />
                           <Route path="/settings" element={<Settings />} />
                         </Routes>

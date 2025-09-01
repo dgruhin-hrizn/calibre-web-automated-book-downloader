@@ -5,6 +5,7 @@ import {
   Download, 
   Settings,
   BookOpen,
+  Library,
   X
 } from 'lucide-react'
 import { cn } from '../lib/utils'
@@ -17,6 +18,7 @@ interface SidebarProps {
 const navigation = [
   { name: 'Dashboard', href: '/', icon: Home },
   { name: 'Search', href: '/search', icon: Search },
+  { name: 'Library', href: '/library', icon: Library },
   { name: 'Downloads', href: '/downloads', icon: Download },
   { name: 'Settings', href: '/settings', icon: Settings },
 ]

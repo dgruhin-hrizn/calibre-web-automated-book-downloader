@@ -17,6 +17,10 @@ from config import _SUPPORTED_BOOK_LANGUAGE, BOOK_LANGUAGE
 from env import FLASK_HOST, FLASK_PORT, APP_ENV, CWA_DB_PATH, DEBUG, USING_EXTERNAL_BYPASSER, BUILD_VERSION, RELEASE_VERSION
 import backend
 from calibre_lookup import calibre_lookup
+from cwa_client import CWAClient
+from cwa_settings import cwa_settings
+from cwa_core.database.calibre_db import CalibreDB
+from cwa_core.database.cwa_db import CWA_DB
 
 from models import SearchFilters
 
@@ -51,6 +55,46 @@ app.config.update(
     SESSION_COOKIE_SAMESITE = 'Lax',
     PERMANENT_SESSION_LIFETIME = 86400  # 24 hours
 )
+
+# Initialize CWA client with settings
+def get_cwa_client():
+    """Get CWA client with current settings"""
+    settings = cwa_settings.load_settings()
+    if settings.get('enabled', False):
+        return CWAClient(
+            base_url=settings.get('base_url'),
+            username=settings.get('username'),
+            password=settings.get('password')
+        )
+    return None
+
+# Initialize with current settings
+cwa_client = get_cwa_client()
+
+# Initialize CWA database and Calibre library access
+try:
+    cwa_db = CWA_DB()
+    calibre_db = CalibreDB()
+    logger.info(f"CWA database initialized: {cwa_db.db_path}{cwa_db.db_file}")
+    logger.info(f"Calibre library available: {calibre_db.is_available()}")
+    if calibre_db.is_available():
+        logger.info(f"Calibre library path: {calibre_db.library_path}")
+except Exception as e:
+    logger.error(f"Error initializing CWA databases: {e}")
+    cwa_db = None
+    calibre_db = None
+
+def require_cwa_client():
+    """Decorator to ensure CWA client is available"""
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            client = get_cwa_client()
+            if not client:
+                return jsonify({'error': 'CWA integration is disabled'}), 503
+            return f(client, *args, **kwargs)
+        return decorated_function
+    return decorator
 
 def login_required(f):
     @wraps(f)
@@ -837,6 +881,434 @@ def validate_credentials(username: str, password: str) -> bool:
 
 # Register all routes with /request prefix
 register_dual_routes(app)
+
+# ============================================================================
+# CWA Settings API Endpoints
+# ============================================================================
+
+@app.route('/api/cwa/settings', methods=['GET'])
+@login_required
+def api_cwa_get_settings():
+    """Get current CWA settings"""
+    try:
+        settings = cwa_settings.get_current_settings()
+        return jsonify(settings)
+    except Exception as e:
+        logger.error(f"Error getting CWA settings: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/cwa/settings', methods=['POST'])
+@login_required
+def api_cwa_save_settings():
+    """Save CWA settings"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        # Save settings
+        success = cwa_settings.save_settings(data)
+        if not success:
+            return jsonify({'error': 'Failed to save settings'}), 500
+        
+        # Update environment variables for runtime
+        cwa_settings.update_env_vars(data)
+        
+        # Reinitialize CWA client with new settings
+        global cwa_client
+        cwa_client = get_cwa_client()
+        
+        return jsonify({
+            'success': True,
+            'message': 'CWA settings saved successfully'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error saving CWA settings: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/cwa/settings/test', methods=['POST'])
+@login_required
+def api_cwa_test_connection():
+    """Test CWA connection with provided settings"""
+    try:
+        data = request.get_json()
+        if not data:
+            # Test with current settings
+            result = cwa_settings.test_connection()
+        else:
+            # Test with provided settings
+            result = cwa_settings.test_connection(data)
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error testing CWA connection: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        })
+
+# ============================================================================
+# CWA Integration API Endpoints
+# ============================================================================
+
+@app.route('/api/cwa/status')
+@login_required
+def api_cwa_status():
+    """Check CWA instance connection status"""
+    try:
+        client = get_cwa_client()
+        if not client:
+            return jsonify({
+                'connected': False,
+                'base_url': None,
+                'authenticated': False,
+                'error': 'CWA integration is disabled'
+            })
+            
+        is_connected = client.check_connection()
+        return jsonify({
+            'connected': is_connected,
+            'base_url': client.base_url,
+            'authenticated': client.authenticated
+        })
+    except Exception as e:
+        logger.error(f"Error checking CWA status: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/cwa/books')
+@login_required
+def api_cwa_books():
+    """Get books from CWA library"""
+    try:
+        client = get_cwa_client()
+        if not client:
+            return jsonify({'error': 'CWA integration is disabled'}), 503
+            
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 25, type=int)
+        sort = request.args.get('sort', 'new')
+        
+        books = client.get_books(page=page, per_page=per_page, sort=sort)
+        if books is None:
+            return jsonify({'error': 'Failed to fetch books from CWA'}), 500
+            
+        return jsonify(books)
+    except Exception as e:
+        logger.error(f"Error fetching CWA books: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/cwa/search')
+@login_required
+def api_cwa_search():
+    """Search books in CWA library"""
+    try:
+        query = request.args.get('query', '')
+        page = request.args.get('page', 1, type=int)
+        
+        if not query:
+            return jsonify({'error': 'Query parameter is required'}), 400
+            
+        results = cwa_client.search_books(query=query, page=page)
+        if results is None:
+            return jsonify({'error': 'Failed to search CWA library'}), 500
+            
+        return jsonify(results)
+    except Exception as e:
+        logger.error(f"Error searching CWA library: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/cwa/book/<int:book_id>')
+@login_required
+def api_cwa_book_details(book_id):
+    """Get detailed information about a CWA book"""
+    try:
+        book_details = cwa_client.get_book_details(book_id)
+        if book_details is None:
+            return jsonify({'error': 'Book not found or failed to fetch details'}), 404
+            
+        return jsonify(book_details)
+    except Exception as e:
+        logger.error(f"Error fetching CWA book details: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/cwa/book/<int:book_id>/formats')
+@login_required
+def api_cwa_book_formats(book_id):
+    """Get available formats for a CWA book"""
+    try:
+        formats = cwa_client.get_book_formats(book_id)
+        if formats is None:
+            return jsonify({'error': 'Failed to fetch book formats'}), 500
+            
+        return jsonify({'formats': formats})
+    except Exception as e:
+        logger.error(f"Error fetching CWA book formats: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/cwa/book/<int:book_id>/download/<format>')
+@login_required
+def api_cwa_download_book(book_id, format):
+    """Download a book from CWA in specified format"""
+    try:
+        book_data = cwa_client.download_book(book_id, format)
+        if book_data is None:
+            return jsonify({'error': 'Failed to download book'}), 500
+            
+        # Get book details for filename
+        book_details = cwa_client.get_book_details(book_id)
+        filename = f"book_{book_id}.{format}"
+        if book_details and 'title' in book_details:
+            safe_title = "".join(c for c in book_details['title'] if c.isalnum() or c in (' ', '-', '_')).rstrip()
+            filename = f"{safe_title}.{format}"
+            
+        return send_file(
+            io.BytesIO(book_data),
+            as_attachment=True,
+            download_name=filename,
+            mimetype=f'application/{format}'
+        )
+    except Exception as e:
+        logger.error(f"Error downloading book from CWA: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/cwa/book/<int:book_id>/reader')
+@login_required
+def api_cwa_reader_url(book_id):
+    """Get CWA reader URL for a book"""
+    try:
+        format = request.args.get('format', 'epub')
+        reader_url = cwa_client.get_reader_url(book_id, format)
+        
+        return jsonify({
+            'reader_url': reader_url,
+            'book_id': book_id,
+            'format': format
+        })
+    except Exception as e:
+        logger.error(f"Error getting CWA reader URL: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/cwa/book/<int:book_id>/cover')
+@login_required
+def api_cwa_book_cover(book_id):
+    """Get CWA book cover URL"""
+    try:
+        cover_url = cwa_client.get_cover_url(book_id)
+        
+        return jsonify({
+            'cover_url': cover_url,
+            'book_id': book_id
+        })
+    except Exception as e:
+        logger.error(f"Error getting CWA book cover: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/cwa/authors')
+@login_required
+def api_cwa_authors():
+    """Get authors from CWA library"""
+    try:
+        authors = cwa_client.get_authors()
+        if authors is None:
+            return jsonify({'error': 'Failed to fetch authors'}), 500
+            
+        return jsonify({'authors': authors})
+    except Exception as e:
+        logger.error(f"Error fetching CWA authors: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/cwa/series')
+@login_required
+def api_cwa_series():
+    """Get series from CWA library"""
+    try:
+        series = cwa_client.get_series()
+        if series is None:
+            return jsonify({'error': 'Failed to fetch series'}), 500
+            
+        return jsonify({'series': series})
+    except Exception as e:
+        logger.error(f"Error fetching CWA series: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/cwa/categories')
+@login_required
+def api_cwa_categories():
+    """Get categories from CWA library"""
+    try:
+        categories = cwa_client.get_categories()
+        if categories is None:
+            return jsonify({'error': 'Failed to fetch categories'}), 500
+            
+        return jsonify({'categories': categories})
+    except Exception as e:
+        logger.error(f"Error fetching CWA categories: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# ============================================================================
+# Calibre Library API Endpoints (Direct Database Access)
+# ============================================================================
+
+@app.route('/api/library/status')
+@login_required
+def api_library_status():
+    """Check Calibre library status"""
+    try:
+        if not calibre_db:
+            return jsonify({
+                'available': False,
+                'error': 'Library database not initialized'
+            })
+        
+        return jsonify({
+            'available': calibre_db.is_available(),
+            'library_path': calibre_db.library_path,
+            'cwa_db_available': cwa_db is not None
+        })
+    except Exception as e:
+        logger.error(f"Error checking library status: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/library/books')
+@login_required
+def api_library_books():
+    """Get books from Calibre library"""
+    try:
+        if not calibre_db or not calibre_db.is_available():
+            return jsonify({'error': 'Calibre library not available'}), 503
+        
+        # Get query parameters
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 25, type=int)
+        sort = request.args.get('sort', 'id')
+        search = request.args.get('search', '')
+        
+        # Calculate offset
+        offset = (page - 1) * per_page
+        
+        # Get books
+        result = calibre_db.get_books(
+            limit=per_page,
+            offset=offset,
+            sort_by=sort,
+            search_query=search if search else None
+        )
+        
+        # Add pagination info
+        total_pages = (result['total'] + per_page - 1) // per_page
+        result.update({
+            'page': page,
+            'per_page': per_page,
+            'total_pages': total_pages
+        })
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error fetching library books: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/library/books/<int:book_id>')
+@login_required
+def api_library_book_details(book_id):
+    """Get detailed information about a library book"""
+    try:
+        if not calibre_db or not calibre_db.is_available():
+            return jsonify({'error': 'Calibre library not available'}), 503
+        
+        book = calibre_db.get_book_by_id(book_id)
+        if not book:
+            return jsonify({'error': 'Book not found'}), 404
+        
+        return jsonify(book)
+        
+    except Exception as e:
+        logger.error(f"Error fetching library book details: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/library/books/<int:book_id>/download/<format>')
+@login_required
+def api_library_download_book(book_id, format):
+    """Download a book from the library"""
+    try:
+        if not calibre_db or not calibre_db.is_available():
+            return jsonify({'error': 'Calibre library not available'}), 503
+        
+        # Get book details
+        book = calibre_db.get_book_by_id(book_id)
+        if not book:
+            return jsonify({'error': 'Book not found'}), 404
+        
+        # Check if format is available
+        if format.lower() not in [f.lower() for f in book.get('formats', [])]:
+            return jsonify({'error': f'Format {format} not available'}), 404
+        
+        # Get file path
+        file_path = calibre_db.get_book_file_path(book_id, format)
+        if not file_path or not os.path.exists(file_path):
+            return jsonify({'error': 'Book file not found'}), 404
+        
+        # Create safe filename
+        safe_title = "".join(c for c in book['title'] if c.isalnum() or c in (' ', '-', '_')).rstrip()
+        filename = f"{safe_title}.{format.lower()}"
+        
+        return send_file(
+            file_path,
+            as_attachment=True,
+            download_name=filename,
+            mimetype=f'application/{format.lower()}'
+        )
+        
+    except Exception as e:
+        logger.error(f"Error downloading library book: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/library/books/<int:book_id>/cover')
+@login_required
+def api_library_book_cover(book_id):
+    """Get book cover image"""
+    try:
+        if not calibre_db or not calibre_db.is_available():
+            return jsonify({'error': 'Calibre library not available'}), 503
+        
+        cover_path = calibre_db.get_cover_path(book_id)
+        if not cover_path or not os.path.exists(cover_path):
+            # Return a default cover or 404
+            return jsonify({'error': 'Cover not found'}), 404
+        
+        return send_file(cover_path, mimetype='image/jpeg')
+        
+    except Exception as e:
+        logger.error(f"Error fetching library book cover: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/library/search')
+@login_required
+def api_library_search():
+    """Search books in library"""
+    try:
+        if not calibre_db or not calibre_db.is_available():
+            return jsonify({'error': 'Calibre library not available'}), 503
+        
+        query = request.args.get('q', '')
+        limit = request.args.get('limit', 25, type=int)
+        
+        if not query:
+            return jsonify({'error': 'Query parameter required'}), 400
+        
+        books = calibre_db.search_books(query, limit)
+        
+        return jsonify({
+            'books': books,
+            'total': len(books),
+            'query': query
+        })
+        
+    except Exception as e:
+        logger.error(f"Error searching library: {e}")
+        return jsonify({'error': str(e)}), 500
 
 logger.log_resource_usage()
 
