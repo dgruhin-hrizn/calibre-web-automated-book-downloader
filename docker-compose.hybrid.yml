@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  # Official Calibre-Web-Automated  
+  # Official Calibre-Web-Automated
   calibre-web-automated:
     image: crocodilestick/calibre-web-automated:latest
     container_name: cwa-official
@@ -9,6 +9,9 @@ services:
       - PUID=1000
       - PGID=1000
       - TZ=America/New_York
+      # Docker Desktop on macOS breaks inotify events between host and container
+      # This forces CWA to use polling instead of inotify for reliable file detection
+      - NETWORK_SHARE_MODE=true
     ports:
       - "8083:8083"
     volumes:
@@ -20,11 +23,11 @@ services:
     networks:
       - cwa-network
 
-  # Our Flask API and Modern Frontend
+  # Our Flask API (backend only)
   cwa-downloader-api:
     build:
       context: .
-      dockerfile: Dockerfile.fullstack
+      dockerfile: Dockerfile.backend
     container_name: cwa-api
     environment:
       - FLASK_PORT=8084
@@ -46,6 +49,18 @@ services:
       - CWA_USERNAME=admin
       - CWA_PASSWORD=admin123
       
+      # Anna's Archive Donator Key (optional - speeds up downloads)
+      - AA_DONATOR_KEY=A6q86M6EeAZR987D4ci7ywbXhmunZ
+      
+      # Cloudflare bypass settings
+      - USE_CF_BYPASS=true
+      
+      # DNS settings - use Cloudflare DNS
+      - CUSTOM_DNS=cloudflare
+      
+      # Ingest directory - must match CWA's expected path
+      - INGEST_DIR=/app/ingest
+      
     ports:
       - "8084:8084"
     volumes:
@@ -54,8 +69,8 @@ services:
       - ./logs:/app/logs
       - ./ingest:/app/ingest
       
-      # Access to CWA's library data (read-only)
-      - ./cwa-data/library:/app/cwa-library:ro
+      # Access to CWA's library data (read-write for advanced features)
+      - ./cwa-data/library:/app/cwa-library
       
     restart: unless-stopped
     depends_on:

@@ -1,4 +1,15 @@
-# Flask backend only - no frontend build
+# Multi-stage build: Frontend + Backend
+FROM node:20-alpine AS frontend-builder
+
+# Build React frontend
+WORKDIR /app/frontend
+COPY frontend/package*.json ./
+RUN npm ci --only=production
+
+COPY frontend/ ./
+RUN npm run build
+
+# Backend stage
 FROM python:3.10-slim
 
 # Environment setup
@@ -16,20 +27,7 @@ RUN apt-get update && \
     curl \
     dumb-init \
     locales \
-    tzdata \
-    xvfb \
-    chromium \
-    chromium-driver \
-    fonts-liberation \
-    libasound2 \
-    libatk-bridge2.0-0 \
-    libdrm2 \
-    libgtk-3-0 \
-    libnspr4 \
-    libnss3 \
-    libxss1 \
-    libxtst6 \
-    xdg-utils && \
+    tzdata && \
     # Configure locale
     sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && \
     locale-gen en_US.UTF-8 && \
@@ -53,6 +51,9 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 # Copy Flask application
 COPY . .
+
+# Copy built frontend from previous stage
+COPY --from=frontend-builder /app/frontend/dist ./static/
 
 # Create necessary directories
 RUN mkdir -p /app/logs /app/smb_data /app/ingest && \

@@ -317,12 +317,15 @@ def download_book(book_info: BookInfo, book_path: Path, progress_callback: Optio
         book_info = get_book_info(book_info.id)
     download_links = book_info.download_urls
 
-    # If AA_DONATOR_KEY is set, use the fast download URL. Else try other sources.
+    # If AA_DONATOR_KEY is set, use the fast download URLs with multiple domain indexes.
     if AA_DONATOR_KEY != "":
-        download_links.insert(
-            0,
-            f"{AA_BASE_URL}/dyn/api/fast_download.json?md5={book_info.id}&key={AA_DONATOR_KEY}",
-        )
+        # Try domain indexes in priority order: 4th server first, then others
+        priority_domains = [3, 0, 1, 2, 4]  # Start with domain 3 (4th server)
+        for i, domain_index in enumerate(priority_domains):
+            download_links.insert(
+                i,
+                f"{AA_BASE_URL}/dyn/api/fast_download.json?md5={book_info.id}&key={AA_DONATOR_KEY}&domain_index={domain_index}",
+            )
 
     for link in download_links:
         try:
@@ -354,7 +357,24 @@ def _get_download_url(link: str, title: str, cancel_flag: Optional[Event] = None
 
     if link.startswith(f"{AA_BASE_URL}/dyn/api/fast_download.json"):
         page = downloader.html_get_page(link)
-        url = json.loads(page).get("download_url")
+        try:
+            api_response = json.loads(page)
+            url = api_response.get("download_url")
+            
+            if url is None:
+                error_msg = api_response.get("error", "Unknown error")
+                logger.debug(f"Fast download API returned error: {error_msg} for {link}")
+                return ""
+            else:
+                # Extract domain_index from URL for logging
+                import re
+                domain_match = re.search(r'domain_index=(\d+)', link)
+                domain_index = domain_match.group(1) if domain_match else "0"
+                logger.info(f"Fast download API success (domain {domain_index}): {url[:100]}...")
+                
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse fast download API response: {e}")
+            return ""
     else:
         html = downloader.html_get_page(link)
 

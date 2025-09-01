@@ -15,6 +15,7 @@ import { Settings } from './pages/Settings'
 import Library from './pages/Library'
 import HotBooks from './pages/HotBooks'
 
+
 import { ToastProvider } from './components/ui/ToastProvider'
 
 const queryClient = new QueryClient({
@@ -76,6 +77,7 @@ function App() {
                   <Route path="/hot" element={<HotBooks />} />
                   <Route path="/downloads" element={<Downloads />} />
                   <Route path="/settings" element={<Settings />} />
+        
                 </Routes>
                       </div>
                     </main>

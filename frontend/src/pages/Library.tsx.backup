@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
-import { Search, Filter, Download, Book, Grid, List, User, Tag, Send, Star } from 'lucide-react'
+import { Search, Filter, Download, Book, Grid, List, User, Tag, Send, Star, AlertTriangle } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Badge } from '../components/ui/badge'
 import { UnifiedBookCard, type UnifiedBook } from '../components/UnifiedBookCard'
+import { DuplicateManagerModal } from '../components/DuplicateManagerModal'
 import { apiRequest } from '../lib/utils'
 import { formatDate } from '../lib/utils'
 import { imageCache } from '../lib/imageCache'
@@ -51,7 +52,8 @@ export function Library() {
   const [totalPages, setTotalPages] = useState(1)
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const [sortParam, setSortParam] = useState('new') // Use CWA sort_param values
-
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false)
 
   const [selectedBook, setSelectedBook] = useState<LibraryBook | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -139,7 +141,7 @@ export function Library() {
         ...(search && { search: search })
       })
       
-      const response: CWALibraryResponse = await apiRequest(`/api/cwa/library/books?${params}`)
+      const response: CWALibraryResponse = await apiRequest(`/api/metadata/books?${params}`)
       
       // Check if we got HTML (login page) instead of JSON
       if (typeof response === 'string') {
@@ -157,32 +159,32 @@ export function Library() {
       // Debug: Log basic response info
 
       
-      // Transform CWA response to our format
-      const transformedBooks: LibraryBook[] = (response.rows || []).map((book: any) => {
-        // Helper to split comma-separated strings (CWA format)
-        const splitCommaString = (str: string | undefined | null) => {
-          if (!str) return []
-          return str.split(',').map(s => s.trim()).filter(Boolean)
+      // Transform metadata.db response to our format
+                const transformedBooks: LibraryBook[] = (response.rows || []).map((book: any) => {
+        // Helper to handle both arrays and comma-separated strings
+        const ensureArray = (value: any) => {
+          if (!value) return []
+          if (Array.isArray(value)) return value
+          if (typeof value === 'string') {
+            return value.split(',').map(s => s.trim()).filter(Boolean)
+          }
+          return []
         }
-
-        // CWA's /ajax/listbooks doesn't include detailed format info, so we start with empty
-        // formats and fetch them individually after loading the page
-        let formats: string[] = [] // Will be populated by fetchFormatsForBooks()
 
         return {
           id: book?.id || 0,
           title: book?.title || 'Unknown Title',
-          authors: book?.authors ? splitCommaString(book.authors) : [],
+          authors: ensureArray(book?.authors),
           series: book?.series || undefined,
           series_index: book?.series_index ? parseFloat(book.series_index) : undefined,
-          rating: book?.ratings || book?.rating || undefined,
+          rating: book?.rating || undefined,
           pubdate: book?.pubdate || undefined,
-          timestamp: book?.timestamp || book?.atom_timestamp || undefined,
-          tags: book?.tags ? splitCommaString(book.tags) : [],
-          languages: book?.languages ? splitCommaString(book.languages) : [],
-          formats: formats,
+          timestamp: book?.timestamp || undefined,
+          tags: ensureArray(book?.tags),
+          languages: ensureArray(book?.languages),
+          formats: ensureArray(book?.formats),
           path: book?.path || '',
-          has_cover: book?.has_cover === 1,
+          has_cover: book?.has_cover === true || book?.has_cover === 1,
           comments: book?.comments || undefined
         }
       })
@@ -206,7 +208,7 @@ export function Library() {
       const preloadUrls = transformedBooks
         .slice(0, 4) // Preload first 4 images only
         .filter(book => book.has_cover)
-        .map(book => `/api/cwa/library/books/${book.id}/cover/md`)
+        .map(book => `/api/metadata/books/${book.id}/cover`)
       
       if (preloadUrls.length > 0) {
         imageCache.preloadImages(preloadUrls)
@@ -242,6 +244,23 @@ export function Library() {
       }
     }
   }
+
+  // Check if user is admin
+  const checkAdminStatus = async () => {
+    try {
+      const response = await fetch('/api/admin/user-info', {
+        credentials: 'include'
+      });
+      
+      if (response.ok) {
+        setIsAdmin(true);
+      } else {
+        setIsAdmin(false);
+      }
+    } catch (error) {
+      setIsAdmin(false);
+    }
+  };
 
   // Load library statistics using endpoints available to all users
   const loadStats = async () => {
@@ -294,6 +313,9 @@ export function Library() {
       
       // Test CWA connection first
       const isHealthy = await testCWAConnection()
+      
+      // Check admin status
+      await checkAdminStatus()
 
       
       if (!isHealthy) {
@@ -508,9 +530,23 @@ export function Library() {
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Library</h1>
-        <p className="text-muted-foreground">Browse your CWA library collection</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Library</h1>
+          <p className="text-muted-foreground">Browse your CWA library collection</p>
+        </div>
+        
+        {/* Admin Controls */}
+        {isAdmin && (
+          <Button
+            onClick={() => setShowDuplicateModal(true)}
+            variant="outline"
+            className="flex items-center gap-2"
+          >
+            <AlertTriangle className="h-4 w-4" />
+            Manage Duplicates
+          </Button>
+        )}
       </div>
 
       {/* Stats Cards */}
@@ -703,6 +739,12 @@ export function Library() {
           onSendToKindle={sendToKindle}
         />
       )}
+      
+      {/* Duplicate Manager Modal */}
+      <DuplicateManagerModal
+        isOpen={showDuplicateModal}
+        onClose={() => setShowDuplicateModal(false)}
+      />
       
       {/* Toast Notifications */}
       <ToastContainer />

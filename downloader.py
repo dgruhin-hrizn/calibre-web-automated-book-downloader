@@ -13,13 +13,16 @@ from threading import Event
 from logger import setup_logger
 from config import PROXIES
 from env import MAX_RETRY, DEFAULT_SLEEP, USE_CF_BYPASS, USING_EXTERNAL_BYPASSER
+
+# Setup logger before using it
+logger = setup_logger(__name__)
+
 if USE_CF_BYPASS:
     if USING_EXTERNAL_BYPASSER:
         from cloudflare_bypasser_external import get_bypassed_page
     else:
         from cloudflare_bypasser import get_bypassed_page
-
-logger = setup_logger(__name__)
+        logger.info("Using SeleniumBase bypasser")
 
 
 def html_get_page(url: str, retry: int = MAX_RETRY, use_bypasser: bool = False) -> str:
@@ -35,15 +38,23 @@ def html_get_page(url: str, retry: int = MAX_RETRY, use_bypasser: bool = False) 
     """
     response = None
     try:
-        logger.debug(f"html_get_page: {url}, retry: {retry}, use_bypasser: {use_bypasser}")
+        # Clean the URL of any invisible characters, trailing commas, or whitespace
+        clean_url = url.strip().rstrip(',').rstrip()
+        # Remove any invisible Unicode characters that might be present
+        clean_url = ''.join(char for char in clean_url if ord(char) < 127 or char.isprintable())
+        
+        if clean_url != url:
+            logger.warning(f"URL cleaned: '{url}' -> '{clean_url}'")
+        
+        logger.debug(f"html_get_page: {clean_url}, retry: {retry}, use_bypasser: {use_bypasser}")
         if use_bypasser and USE_CF_BYPASS:
-            logger.info(f"GET Using Cloudflare Bypasser for: {url}")
-            return get_bypassed_page(url)
+            logger.info(f"GET Using Cloudflare Bypasser for: {clean_url}")
+            return get_bypassed_page(clean_url)
         else:
-            logger.info(f"GET: {url}")
-            response = requests.get(url, proxies=PROXIES)
+            logger.info(f"GET: {clean_url}")
+            response = requests.get(clean_url, proxies=PROXIES)
             response.raise_for_status()
-            logger.debug(f"Success getting: {url}")
+            logger.debug(f"Success getting: {clean_url}")
             time.sleep(1)
         return str(response.text)
         
@@ -80,6 +91,14 @@ def download_url(link: str, size: str = "", progress_callback: Optional[Callable
         BytesIO: Buffer containing downloaded content if successful
     """
     try:
+        # Clean the download URL of any invisible characters or trailing commas
+        clean_link = link.strip().rstrip(',').rstrip() if link else ""
+        clean_link = ''.join(char for char in clean_link if ord(char) < 127 or char.isprintable())
+        
+        if clean_link != link:
+            logger.debug(f"Download URL cleaned: '{link}' -> '{clean_link}'")
+            link = clean_link
+        
         logger.info(f"Downloading from: {link}")
         response = requests.get(link, stream=True, proxies=PROXIES)
         response.raise_for_status()

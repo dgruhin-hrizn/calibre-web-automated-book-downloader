@@ -36,7 +36,7 @@ export interface DownloadStatus {
 
 export interface UnifiedBookCardProps {
   book: UnifiedBook
-  cardType: 'search' | 'library'
+  cardType?: 'search' | 'library'  // Make optional for backward compatibility
   viewMode?: 'grid' | 'list'  // Only used for library cards
   
   // Search-specific props
@@ -49,11 +49,15 @@ export interface UnifiedBookCardProps {
   onImageLoaded?: (bookId: string | number) => void
   onDetails?: (book: UnifiedBook) => void
   onSendToKindle?: (book: UnifiedBook) => void
+  
+  // Button visibility controls
+  showDownloadButton?: boolean
+  showKindleButton?: boolean
 }
 
 export function UnifiedBookCard({
   book,
-  cardType,
+  cardType = 'library',
   viewMode = 'grid',
   downloadStatus,
   isPending = false,
@@ -62,6 +66,8 @@ export function UnifiedBookCard({
   onImageLoaded,
   onDetails,
   onSendToKindle,
+  showDownloadButton = true,
+  showKindleButton = true,
 }: UnifiedBookCardProps) {
   const [imageLoaded, setImageLoaded] = useState(false)
   const [imageError, setImageError] = useState(false)
@@ -90,7 +96,7 @@ export function UnifiedBookCard({
     }
   }, [book.id, onImageLoaded])
   
-  const handleImageError = useCallback((e: any) => {
+  const handleImageError = useCallback((_e: any) => {
     setImageError(true)
     if (onImageLoaded) {
       onImageLoaded(book.id) // Still mark as "processed" to move to next image
@@ -201,7 +207,16 @@ export function UnifiedBookCard({
               <Eye className="h-3 w-3" />
             </Button>
           )}
-          {onSendToKindle && book.formats && book.formats.length > 0 && (
+          {showDownloadButton && onDownload && book.formats && book.formats.length > 0 && (
+            <Button 
+              size="sm" 
+              variant="outline"
+              onClick={() => onDownload(book)}
+            >
+              <Download className="h-3 w-3" />
+            </Button>
+          )}
+          {showKindleButton && onSendToKindle && book.formats && book.formats.length > 0 && (
             <Button 
               size="sm" 
               variant="outline"
@@ -214,13 +229,23 @@ export function UnifiedBookCard({
       )
     } else {
       return (
-        <div className="flex gap-2">
+        <div className="flex gap-1">
           {onDetails && (
             <Button size="sm" variant="outline" onClick={() => onDetails(book)} className="flex-1">
               <Eye className="h-3 w-3" />
             </Button>
           )}
-          {onSendToKindle && book.formats && book.formats.length > 0 && (
+          {showDownloadButton && onDownload && book.formats && book.formats.length > 0 && (
+            <Button 
+              size="sm" 
+              variant="outline"
+              onClick={() => onDownload(book)}
+              className="flex-1"
+            >
+              <Download className="h-3 w-3" />
+            </Button>
+          )}
+          {showKindleButton && onSendToKindle && book.formats && book.formats.length > 0 && (
             <Button 
               size="sm" 
               variant="outline"

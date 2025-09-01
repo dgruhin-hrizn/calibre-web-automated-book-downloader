@@ -7,6 +7,7 @@ import {
   BookOpen,
   Library,
   TrendingUp,
+  Shield,
   X
 } from 'lucide-react'
 import { cn } from '../lib/utils'
@@ -23,6 +24,7 @@ const navigation = [
   { name: 'Hot Books', href: '/hot', icon: TrendingUp },
   { name: 'Downloads', href: '/downloads', icon: Download },
   { name: 'Settings', href: '/settings', icon: Settings },
+  { name: 'Admin Panel', href: '/admin', icon: Shield, adminOnly: true },
 ]
 
 export function Sidebar({ open, onOpenChange }: SidebarProps) {
@@ -69,6 +71,8 @@ export function Sidebar({ open, onOpenChange }: SidebarProps) {
             open ? "px-4" : "px-2 overflow-x-hidden"
           )}>
             {navigation.map((item) => {
+              // For now, show admin panel to all users since we only have admin login
+              // In the future, you could check user permissions here
               const isActive = location.pathname === item.href
               return (
                 <Link
