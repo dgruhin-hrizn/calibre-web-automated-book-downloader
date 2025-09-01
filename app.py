@@ -4,7 +4,7 @@ import logging
 import io, re, os
 import sqlite3
 from functools import wraps
-from flask import Flask, request, jsonify, render_template, send_file, send_from_directory
+from flask import Flask, request, jsonify, render_template, send_file, send_from_directory, session
 from flask_cors import CORS
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash
@@ -16,6 +16,7 @@ from logger import setup_logger
 from config import _SUPPORTED_BOOK_LANGUAGE, BOOK_LANGUAGE
 from env import FLASK_HOST, FLASK_PORT, APP_ENV, CWA_DB_PATH, DEBUG, USING_EXTERNAL_BYPASSER, BUILD_VERSION, RELEASE_VERSION
 import backend
+from calibre_lookup import calibre_lookup
 
 from models import SearchFilters
 
@@ -40,11 +41,15 @@ werkzeug_logger = logging.getLogger('werkzeug')
 werkzeug_logger.handlers = logger.handlers
 werkzeug_logger.setLevel(logger.level)
 
-# Set up authentication defaults
+# Set up session configuration
 # The secret key will reset every time we restart, which will
 # require users to authenticate again
 app.config.update(
-    SECRET_KEY = os.urandom(64)
+    SECRET_KEY = os.urandom(64),
+    SESSION_COOKIE_HTTPONLY = True,
+    SESSION_COOKIE_SECURE = False,  # Set to True in production with HTTPS
+    SESSION_COOKIE_SAMESITE = 'Lax',
+    PERMANENT_SESSION_LIFETIME = 86400  # 24 hours
 )
 
 def login_required(f):
@@ -55,14 +60,11 @@ def login_required(f):
         if CWA_DB_PATH is not None and not os.path.isfile(CWA_DB_PATH):
             logger.error(f"CWA_DB_PATH is set to {CWA_DB_PATH} but this is not a valid path")
             return Response("Internal Server Error", 500)
-        if not authenticate():
-            return Response(
-                response="Unauthorized",
-                status=401,
-                headers={
-                    "WWW-Authenticate": 'Basic realm="Calibre-Web-Automated-Book-Downloader"',
-                },
-            )
+        
+        # Check if user is logged in via session
+        if not session.get('logged_in') or not session.get('username'):
+            return jsonify({"error": "Authentication required"}), 401
+            
         return f(*args, **kwargs)
     return decorated_function
 
@@ -193,6 +195,85 @@ if DEBUG:
         Restart the application
         """
         os._exit(0)
+
+@app.route('/api/login', methods=['POST'])
+def api_login() -> Union[Response, Tuple[Response, int]]:
+    """
+    Login endpoint for session-based authentication.
+    
+    Expected JSON body:
+    {
+        "username": "user",
+        "password": "pass"
+    }
+    
+    Returns:
+        JSON with login status and user info
+    """
+    try:
+        data = request.get_json()
+        if not data or not data.get('username') or not data.get('password'):
+            return jsonify({"error": "Username and password required"}), 400
+        
+        username = data['username']
+        password = data['password']
+        
+        # Validate credentials using existing authenticate logic
+        if validate_credentials(username, password):
+            # Set session data
+            session['logged_in'] = True
+            session['username'] = username
+            session.permanent = True
+            
+            logger.info(f"User {username} logged in successfully")
+            return jsonify({
+                "success": True,
+                "user": {"username": username}
+            })
+        else:
+            logger.warning(f"Failed login attempt for user {username}")
+            return jsonify({"error": "Invalid username or password"}), 401
+            
+    except Exception as e:
+        logger.error_trace(f"Login error: {e}")
+        return jsonify({"error": "Login failed"}), 500
+
+@app.route('/api/logout', methods=['POST'])
+def api_logout() -> Union[Response, Tuple[Response, int]]:
+    """
+    Logout endpoint to clear session.
+    
+    Returns:
+        JSON with logout status
+    """
+    try:
+        username = session.get('username', 'unknown')
+        session.clear()
+        logger.info(f"User {username} logged out")
+        return jsonify({"success": True})
+    except Exception as e:
+        logger.error_trace(f"Logout error: {e}")
+        return jsonify({"error": "Logout failed"}), 500
+
+@app.route('/api/auth/check', methods=['GET'])
+def api_auth_check() -> Union[Response, Tuple[Response, int]]:
+    """
+    Lightweight authentication check endpoint.
+    
+    Returns:
+        JSON with authentication status and user info
+    """
+    try:
+        if session.get('logged_in') and session.get('username'):
+            return jsonify({
+                "authenticated": True,
+                "user": {"username": session.get('username')}
+            })
+        else:
+            return jsonify({"authenticated": False}), 401
+    except Exception as e:
+        logger.error_trace(f"Auth check error: {e}")
+        return jsonify({"authenticated": False}), 401
 
 @app.route('/api/search', methods=['GET'])
 @login_required
@@ -608,6 +689,67 @@ def api_clear_completed() -> Union[Response, Tuple[Response, int]]:
         logger.error_trace(f"Clear completed error: {e}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/calibre/check', methods=['POST'])
+@login_required
+def api_calibre_check_books() -> Union[Response, Tuple[Response, int]]:
+    """
+    Check if books exist in Calibre library.
+    
+    Expected JSON body:
+    {
+        "books": [
+            {"id": "book_id", "title": "Book Title", "author": "Author Name"},
+            ...
+        ]
+    }
+    
+    Returns:
+        JSON with book existence status for each book ID
+    """
+    try:
+        if not calibre_lookup.is_available():
+            return jsonify({"error": "Calibre database not available"}), 503
+        
+        data = request.get_json()
+        if not data or 'books' not in data:
+            return jsonify({"error": "Missing 'books' in request body"}), 400
+        
+        books = data['books']
+        if not isinstance(books, list):
+            return jsonify({"error": "'books' must be an array"}), 400
+        
+        # Check existence for all books
+        existence_map = calibre_lookup.books_exist_batch(books)
+        
+        return jsonify({"exists": existence_map})
+        
+    except Exception as e:
+        logger.error_trace(f"Calibre check error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/calibre/status', methods=['GET'])
+@login_required
+def api_calibre_status() -> Union[Response, Tuple[Response, int]]:
+    """
+    Get Calibre database availability status.
+    
+    Returns:
+        JSON with Calibre database status
+    """
+    try:
+        is_available = calibre_lookup.is_available()
+        db_path = str(calibre_lookup.db_path) if calibre_lookup.db_path else None
+        
+        return jsonify({
+            "available": is_available,
+            "database_path": db_path,
+            "configured": CWA_DB_PATH is not None
+        })
+        
+    except Exception as e:
+        logger.error_trace(f"Calibre status error: {e}")
+        return jsonify({"error": str(e)}), 500
+
 @app.errorhandler(404)
 def not_found_error(error: Exception) -> Union[Response, Tuple[Response, int]]:
     """
@@ -636,34 +778,47 @@ def internal_error(error: Exception) -> Union[Response, Tuple[Response, int]]:
     logger.error_trace(f"500 error: {error}")
     return jsonify({"error": "Internal server error"}), 500
 
-def authenticate() -> bool:
+def validate_credentials(username: str, password: str) -> bool:
     """
-    Helper function that validates Basic credentials
+    Helper function that validates credentials
     against a Calibre-Web app.db SQLite database
 
     Database structure:
     - Table 'user' with columns: 'name' (username), 'password'
     """
 
-    # If the database doesn't exist, the user is always authenticated
+    # If the database doesn't exist, allow any credentials
     if not CWA_DB_PATH:
         return True
 
-    # If no authorization object exists, return false to prompt
-    # a request to the user
-    if not request.authorization:
-        return False
-
-    username = request.authorization.get("username")
-    password = request.authorization.get("password")
-
-    # Validate credentials against database
+    # Look for app.db in the same directory as cwa.db for authentication
     try:
+        # First, try to find app.db in the same directory as cwa.db
+        cwa_dir = CWA_DB_PATH.parent
+        app_db_path = cwa_dir / "app.db"
+        
+        if app_db_path.exists():
+            # Use app.db for authentication
+            db_path = os.fspath(app_db_path)
+            logger.info(f"Using app.db for authentication: {app_db_path}")
+        else:
+            # Fall back to cwa.db and check if it has user table
+            db_path = os.fspath(CWA_DB_PATH)
+            logger.info(f"No app.db found, checking cwa.db for user table: {CWA_DB_PATH}")
+        
         # Open database in true read-only mode to avoid journal/WAL writes on RO mounts
-        db_path = os.fspath(CWA_DB_PATH)
         db_uri = f"file:{db_path}?mode=ro&immutable=1"
         conn = sqlite3.connect(db_uri, uri=True)
         cur = conn.cursor()
+        
+        # Check if user table exists first
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user'")
+        if not cur.fetchone():
+            # No user table exists, so no authentication required
+            conn.close()
+            logger.info("No user table found - authentication bypassed")
+            return True
+        
         cur.execute("SELECT password FROM user WHERE name = ?", (username,))
         row = cur.fetchone()
         conn.close()
@@ -674,7 +829,7 @@ def authenticate() -> bool:
             return False
 
     except Exception as e:
-        logger.error_trace(f"CWA DB or authentication send_from_directory: {e}")
+        logger.error_trace(f"Authentication error: {e}")
         return False
 
     logger.info(f"Authentication successful for user {username}")

@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Sun, Moon, Monitor, ChevronDown, Menu, Search } from 'lucide-react'
+import { Sun, Moon, Monitor, ChevronDown, Menu, Search, LogOut, User } from 'lucide-react'
 import { Button } from './ui/Button'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { cn } from '../lib/utils'
+import { useAuth } from '../contexts/AuthContext'
 
 interface HeaderProps {
   onMenuClick: () => void
@@ -14,6 +15,7 @@ interface HeaderProps {
 export function Header({ onMenuClick, theme, onThemeChange }: HeaderProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const navigate = useNavigate()
+  const { logout, user } = useAuth()
 
   const themeOptions = [
     { value: 'light', label: 'Light', icon: Sun },
@@ -69,8 +71,6 @@ export function Header({ onMenuClick, theme, onThemeChange }: HeaderProps) {
 
         {/* Right section */}
         <div className="flex items-center space-x-4">
-
-
           {/* Theme Selector */}
           <DropdownMenu.Root>
             <DropdownMenu.Trigger asChild>
@@ -99,6 +99,31 @@ export function Header({ onMenuClick, theme, onThemeChange }: HeaderProps) {
                     <span>{option.label}</span>
                   </DropdownMenu.Item>
                 ))}
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
+
+          {/* User Menu */}
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger asChild>
+              <Button variant="ghost" size="sm" className="flex items-center space-x-2">
+                <User className="w-4 h-4" />
+                <span className="hidden sm:inline">{user?.username}</span>
+                <ChevronDown className="w-3 h-3" />
+              </Button>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content
+                className="min-w-[8rem] bg-popover border border-border rounded-md shadow-md p-1 z-50"
+                sideOffset={5}
+              >
+                <DropdownMenu.Item
+                  className="flex items-center space-x-2 px-2 py-1.5 text-sm rounded-sm cursor-pointer outline-none hover:bg-accent hover:text-accent-foreground"
+                  onClick={logout}
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>Sign Out</span>
+                </DropdownMenu.Item>
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
           </DropdownMenu.Root>

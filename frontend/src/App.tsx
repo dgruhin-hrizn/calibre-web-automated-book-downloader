@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
+import { AuthProvider } from './contexts/AuthContext'
+import { ProtectedRoute } from './components/ProtectedRoute'
 import { Sidebar } from './components/Sidebar'
 import { Header } from './components/Header'
 import { QueueWidget } from './components/QueueWidget'
@@ -38,50 +40,54 @@ function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <Router>
-        <DragDropProvider>
-          <ToastProvider>
-            <div className={`min-h-screen h-screen bg-background overflow-hidden ${theme === 'dark' ? 'dark' : ''}`}>
-            <div className="flex h-full">
-              {/* Fixed Sidebar */}
-              <div className="flex-shrink-0">
-                <Sidebar open={sidebarOpen} onOpenChange={setSidebarOpen} />
+      <AuthProvider>
+        <Router>
+          <ProtectedRoute>
+            <DragDropProvider>
+              <ToastProvider>
+                <div className={`min-h-screen h-screen bg-background overflow-hidden ${theme === 'dark' ? 'dark' : ''}`}>
+                <div className="flex h-full">
+                  {/* Fixed Sidebar */}
+                  <div className="flex-shrink-0">
+                    <Sidebar open={sidebarOpen} onOpenChange={setSidebarOpen} />
+                  </div>
+                  
+                  {/* Main Content */}
+                  <div className="flex-1 flex flex-col min-w-0 h-full">
+                    {/* Fixed Header */}
+                    <div className="flex-shrink-0">
+                      <Header 
+                        onMenuClick={() => setSidebarOpen(!sidebarOpen)}
+                        theme={theme}
+                        onThemeChange={setTheme}
+                      />
+                    </div>
+                    
+                    {/* Scrollable Main Content Area */}
+                    <main className="flex-1 overflow-auto">
+                      <div className="container mx-auto px-6 py-8">
+                        <Routes>
+                          <Route path="/" element={<Dashboard />} />
+                          <Route path="/search" element={<Search />} />
+                          <Route path="/downloads" element={<Downloads />} />
+                          <Route path="/settings" element={<Settings />} />
+                        </Routes>
+                      </div>
+                    </main>
+                  </div>
+                </div>
               </div>
               
-              {/* Main Content */}
-              <div className="flex-1 flex flex-col min-w-0 h-full">
-                {/* Fixed Header */}
-                <div className="flex-shrink-0">
-                  <Header 
-                    onMenuClick={() => setSidebarOpen(!sidebarOpen)}
-                    theme={theme}
-                    onThemeChange={setTheme}
-                  />
-                </div>
+                {/* Queue Widget - Fixed Position */}
+                <QueueWidget />
                 
-                {/* Scrollable Main Content Area */}
-                <main className="flex-1 overflow-auto">
-                  <div className="container mx-auto px-6 py-8">
-                    <Routes>
-                      <Route path="/" element={<Dashboard />} />
-                      <Route path="/search" element={<Search />} />
-                      <Route path="/downloads" element={<Downloads />} />
-                      <Route path="/settings" element={<Settings />} />
-                    </Routes>
-                  </div>
-                </main>
-              </div>
-            </div>
-          </div>
-          
-            {/* Queue Widget - Fixed Position */}
-            <QueueWidget />
-            
-            {/* Queue Notifications - Fixed Position */}
-            <QueueNotifications />
-          </ToastProvider>
-        </DragDropProvider>
-      </Router>
+                {/* Queue Notifications - Fixed Position */}
+                <QueueNotifications />
+              </ToastProvider>
+            </DragDropProvider>
+          </ProtectedRoute>
+        </Router>
+      </AuthProvider>
     </QueryClientProvider>
   )
 }

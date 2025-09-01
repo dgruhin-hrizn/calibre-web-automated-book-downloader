@@ -1,15 +1,17 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Download, BookOpen, Clock, CheckCircle, AlertCircle, TrendingUp, Activity, Zap, ChevronLeft, ChevronRight, Search, RotateCcw } from 'lucide-react'
+import { Download, BookOpen, Clock, CheckCircle, AlertCircle, TrendingUp, Activity, Zap, ChevronLeft, ChevronRight, Search, RotateCcw, Database } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { BookCover } from '../components/ui/BookCover'
 import { CircularProgress } from '../components/ui/CircularProgress'
 import { useDownloadStatus } from '../hooks/useDownloads'
 import { useDownloadStore } from '../stores/downloadStore'
+import { useCalibreStatus } from '../hooks/useCalibreLibrary'
 import { formatDate } from '../lib/utils'
 
 export function Dashboard() {
   const { data: statusData, isLoading, error } = useDownloadStatus()
+  const { data: calibreStatus } = useCalibreStatus()
   const { getRecentDownloads } = useDownloadStore()
   const recentHistory = getRecentDownloads()
   const navigate = useNavigate()
@@ -143,7 +145,7 @@ export function Dashboard() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
         <div className="rounded-lg border bg-card text-card-foreground shadow-sm p-6 hover:shadow-md transition-shadow">
           <div className="flex flex-row items-center justify-between space-y-0 pb-2">
             <h3 className="tracking-tight text-sm font-medium">Library Size</h3>
@@ -195,6 +197,29 @@ export function Dashboard() {
           <div className="text-2xl font-bold">{stats.failedDownloads}</div>
           <p className="text-xs text-muted-foreground">
             Need attention
+          </p>
+        </div>
+
+        <div className="rounded-lg border bg-card text-card-foreground shadow-sm p-6 hover:shadow-md transition-shadow">
+          <div className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <h3 className="tracking-tight text-sm font-medium">Calibre Library</h3>
+            <div className={`h-8 w-8 rounded-full flex items-center justify-center ${
+              calibreStatus?.available 
+                ? 'bg-green-100 dark:bg-green-900/20' 
+                : 'bg-gray-100 dark:bg-gray-900/20'
+            }`}>
+              <Database className={`h-4 w-4 ${
+                calibreStatus?.available 
+                  ? 'text-green-600 dark:text-green-400' 
+                  : 'text-gray-600 dark:text-gray-400'
+              }`} />
+            </div>
+          </div>
+          <div className="text-2xl font-bold">
+            {calibreStatus?.available ? 'Connected' : 'Not Found'}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {calibreStatus?.configured ? 'Database configured' : 'No database path set'}
           </p>
         </div>
       </div>
