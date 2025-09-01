@@ -8,6 +8,7 @@ import { BookCover } from './BookDetailsModal/BookCover'
 import { MoreByAuthor } from './BookDetailsModal/MoreByAuthor'
 import { ModalFooter } from './BookDetailsModal/ModalFooter'
 import { EnhancedBookInfo } from './BookDetailsModal/EnhancedBookInfo'
+import { AuthorFormatter } from '../utils/authorFormatter'
 
 
 
@@ -24,7 +25,6 @@ export function BookDetailsModal({ book: basicBook, onClose }: BookDetailsModalP
   const [googleBooksData, setGoogleBooksData] = useState<any>(null)
   const [detailedGoogleBooksData, setDetailedGoogleBooksData] = useState<any>(null)
   const [enhancedBook, setEnhancedBook] = useState<any>(null)
-  const [isLoadingEnhanced, setIsLoadingEnhanced] = useState(false)
 
   const [authorBooks, setAuthorBooks] = useState<any[]>([])
   const [isLoadingAuthorBooks, setIsLoadingAuthorBooks] = useState(false)
@@ -38,6 +38,8 @@ export function BookDetailsModal({ book: basicBook, onClose }: BookDetailsModalP
     )
   }
 
+
+
   // Use enhanced book data if available, otherwise fall back to basic book data
   const book = enhancedBook || basicBook
 
@@ -49,7 +51,6 @@ export function BookDetailsModal({ book: basicBook, onClose }: BookDetailsModalP
       setGoogleBooksData(null)
       setDetailedGoogleBooksData(null)
       setAuthorBooks([])
-      setIsLoadingEnhanced(false)
     }
   }, [basicBook?.id])
 
@@ -62,7 +63,6 @@ export function BookDetailsModal({ book: basicBook, onClose }: BookDetailsModalP
       }
 
       console.log('BookDetailsModal: Fetching Google Books data for:', basicBook.title, 'by', basicBook.author)
-      setIsLoadingEnhanced(true)
 
       try {
         // Direct Google Books search using the title and author we already have
@@ -92,10 +92,9 @@ export function BookDetailsModal({ book: basicBook, onClose }: BookDetailsModalP
           setEnhancedBook(combinedData)
           setGoogleBooksData(googleBooksData)
 
-          // Fetch more books by author using Google Books data
-          const author = googleBooksData?.volumeInfo?.authors?.[0] || basicBook.author
-          if (author) {
-            fetchAuthorBooks(author)
+          // Fetch more books by author using original author from search results (formatted for better search)
+          if (basicBook.author) {
+            fetchAuthorBooks(AuthorFormatter.formatForSearch(basicBook.author))
           }
         } else {
           console.log('BookDetailsModal: Enhanced book details not available:', response.status)
@@ -106,8 +105,6 @@ export function BookDetailsModal({ book: basicBook, onClose }: BookDetailsModalP
         console.error('BookDetailsModal: Error fetching enhanced book details:', error)
         // Fallback to direct Google Books API on error
         await fallbackToDirectGoogleBooks()
-      } finally {
-        setIsLoadingEnhanced(false)
       }
     }
 
@@ -139,10 +136,9 @@ export function BookDetailsModal({ book: basicBook, onClose }: BookDetailsModalP
             fetchDetailedVolumeInfo(googleData.id)
           }
           
-          // Fetch more books by the same author
-          const author = googleData?.volumeInfo?.authors?.[0] || basicBook.author
-          if (author) {
-            fetchAuthorBooks(author)
+          // Fetch more books by the same author using original author from search results (formatted for better search)
+          if (basicBook.author) {
+            fetchAuthorBooks(AuthorFormatter.formatForSearch(basicBook.author))
           }
         }
       } catch (error) {
@@ -184,6 +180,7 @@ export function BookDetailsModal({ book: basicBook, onClose }: BookDetailsModalP
   // Fetch more books by author
   const fetchAuthorBooks = async (authorName: string) => {
     console.log('BookDetailsModal: Fetching more books by author:', authorName)
+    console.log('BookDetailsModal: Author formats - Original:', basicBook?.author, '-> Display:', AuthorFormatter.formatForDisplay(basicBook?.author || ''), '-> Search:', authorName)
     setIsLoadingAuthorBooks(true)
     
     try {
@@ -206,9 +203,11 @@ export function BookDetailsModal({ book: basicBook, onClose }: BookDetailsModalP
         
         // Google Books API returns search results differently than single book
         if (searchResponse.items) {
-          setAuthorBooks(searchResponse.items.slice(0, 6))
+          console.log('BookDetailsModal: Setting all author books:', searchResponse.items.length)
+          setAuthorBooks(searchResponse.items) // Use all books, carousel will handle pagination
         } else if (Array.isArray(searchResponse)) {
-          setAuthorBooks(searchResponse.slice(0, 6))
+          console.log('BookDetailsModal: Setting all author books (array format):', searchResponse.length)
+          setAuthorBooks(searchResponse) // Use all books, carousel will handle pagination
         }
       } else {
         console.log('BookDetailsModal: Author books search failed:', response.status)
@@ -272,7 +271,7 @@ export function BookDetailsModal({ book: basicBook, onClose }: BookDetailsModalP
             </h2>
             {(getBestGoogleBooksData()?.volumeInfo?.authors?.[0] || book?.author) && (
               <p className="text-sm text-muted-foreground mt-1">
-                by {getBestGoogleBooksData()?.volumeInfo?.authors?.[0] || book?.author}
+                by {AuthorFormatter.formatForDisplay(getBestGoogleBooksData()?.volumeInfo?.authors?.[0] || book?.author)}
               </p>
             )}
           </div>
@@ -310,7 +309,7 @@ export function BookDetailsModal({ book: basicBook, onClose }: BookDetailsModalP
 
               {/* More by Author Section */}
               <MoreByAuthor
-                authorName={getBestGoogleBooksData()?.volumeInfo?.authors?.[0] || book.author}
+                authorName={AuthorFormatter.formatForDisplay(book.author)}
                 books={authorBooks}
                 isLoading={isLoadingAuthorBooks}
                 onSearchByTitle={handleSearchByTitle}

@@ -8,6 +8,7 @@ import { BookDetailsModal } from '../components/BookDetailsModal'
 import { useSearchBooks, useSearchCache } from '../hooks/useSearchCache'
 import { useDownloadBook, useDownloadStatus, type Book } from '../hooks/useDownloads'
 import { useDownloadStore } from '../stores/downloadStore'
+import { AuthorFormatter } from '../utils/authorFormatter'
 
 export function Search() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -322,8 +323,8 @@ export function Search() {
                         <h3 className="font-medium text-sm leading-tight line-clamp-2" title={book.title}>
                           {book.title}
                         </h3>
-                        <p className="text-xs text-muted-foreground line-clamp-1" title={book.author || 'Unknown Author'}>
-                          by {book.author || 'Unknown Author'}
+                        <p className="text-xs text-muted-foreground line-clamp-1" title={AuthorFormatter.formatForDisplay(book.author) || 'Unknown Author'}>
+                          by {AuthorFormatter.formatForDisplay(book.author) || 'Unknown Author'}
                         </p>
                         
                         {/* Metadata */}

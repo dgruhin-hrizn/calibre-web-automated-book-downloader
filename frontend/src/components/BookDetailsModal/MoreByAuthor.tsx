@@ -31,6 +31,12 @@ export function MoreByAuthor({ authorName, books, isLoading, onSearchByTitle }: 
     updateScrollButtons()
   }, [currentIndex, books.length])
 
+  // Reset to first page when books change
+  useEffect(() => {
+    console.log('MoreByAuthor: Books changed, length:', books.length, 'totalPages:', Math.ceil(books.length / itemsPerView))
+    setCurrentIndex(0)
+  }, [books.length])
+
   const updateScrollButtons = () => {
     setCanScrollLeft(currentIndex > 0)
     setCanScrollRight(currentIndex < totalPages - 1)
@@ -106,28 +112,28 @@ export function MoreByAuthor({ authorName, books, isLoading, onSearchByTitle }: 
             className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 transition-all duration-300"
           >
             {visibleBooks.map((authorBook, index) => (
-              <div key={currentIndex * itemsPerView + index} className="space-y-2">
-                <div className="aspect-[3/4] bg-muted rounded-lg overflow-hidden">
+              <div key={currentIndex * itemsPerView + index} className="space-y-3">
+                <div className="aspect-[2/3] bg-muted rounded-lg overflow-hidden shadow-sm">
                   {authorBook.volumeInfo?.imageLinks?.thumbnail ? (
                     <img
                       src={authorBook.volumeInfo.imageLinks.thumbnail.replace('http:', 'https:')}
                       alt={authorBook.volumeInfo?.title || 'Book cover'}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-contain bg-white"
                     />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                      <Book className="w-8 h-8 text-muted-foreground" />
+                    <div className="w-full h-full flex items-center justify-center bg-muted">
+                      <Book className="w-10 h-10 text-muted-foreground" />
                     </div>
                   )}
                 </div>
-                <div className="space-y-1">
-                  <h4 className="text-xs font-medium text-foreground line-clamp-2">
+                <div className="space-y-2">
+                  <h4 className="text-sm font-medium text-foreground truncate leading-tight" title={authorBook.volumeInfo?.title || 'Untitled'}>
                     {authorBook.volumeInfo?.title || 'Untitled'}
                   </h4>
                   <Button
                     size="sm"
                     variant="outline"
-                    className="w-full h-7 text-xs"
+                    className="w-full h-8 text-xs"
                     onClick={() => onSearchByTitle(authorBook.volumeInfo?.title || '')}
                   >
                     <Search className="w-3 h-3 mr-1" />
