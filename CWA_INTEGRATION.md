@@ -290,3 +290,4 @@ LOG_LEVEL=DEBUG
 - **Performance**: Minimal impact on app performance when CWA is unavailable
 
 The integration provides a seamless bridge between your modern download interface and the full power of Calibre-Web-Automated's library management system!
+

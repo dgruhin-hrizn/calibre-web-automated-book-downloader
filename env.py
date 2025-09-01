@@ -6,10 +6,12 @@ def string_to_bool(s: str) -> bool:
 
 CWA_DB = os.getenv("CWA_DB_PATH")
 CWA_DB_PATH = Path(CWA_DB) if CWA_DB else None
+
+# Calibre Library Configuration removed - using CWA proxy instead
 LOG_ROOT = Path(os.getenv("LOG_ROOT", "/var/log/"))
 LOG_DIR = LOG_ROOT / "cwa-book-downloader"
 TMP_DIR = Path(os.getenv("TMP_DIR", "/tmp/cwa-book-downloader"))
-INGEST_DIR = Path(os.getenv("INGEST_DIR", "/cwa-book-ingest"))
+INGEST_DIR = Path(os.getenv("INGEST_DIR", "/tmp/cwa-book-ingest"))
 STATUS_TIMEOUT = int(os.getenv("STATUS_TIMEOUT", "3600"))
 USE_BOOK_TITLE = string_to_bool(os.getenv("USE_BOOK_TITLE", "false"))
 MAX_RETRY = int(os.getenv("MAX_RETRY", "10"))
@@ -65,7 +67,7 @@ if USING_TOR:
     HTTPS_PROXY = ""
 
 # CWA Integration Settings
-CWA_BASE_URL = os.getenv("CWA_BASE_URL", "http://localhost:8083")
-CWA_USERNAME = os.getenv("CWA_USERNAME", "")
-CWA_PASSWORD = os.getenv("CWA_PASSWORD", "")
+CWA_BASE_URL = os.getenv("CWA_BASE_URL", "http://192.168.1.8:8083")
+CWA_USERNAME = os.getenv("CWA_USERNAME", "admin")
+CWA_PASSWORD = os.getenv("CWA_PASSWORD", "PRotected!21KEepout!99")
     

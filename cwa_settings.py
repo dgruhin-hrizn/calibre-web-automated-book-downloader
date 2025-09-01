@@ -211,3 +211,4 @@ class CWASettings:
 
 # Global instance
 cwa_settings = CWASettings()
+

@@ -6,6 +6,7 @@ import {
   Settings,
   BookOpen,
   Library,
+  TrendingUp,
   X
 } from 'lucide-react'
 import { cn } from '../lib/utils'
@@ -19,6 +20,7 @@ const navigation = [
   { name: 'Dashboard', href: '/', icon: Home },
   { name: 'Search', href: '/search', icon: Search },
   { name: 'Library', href: '/library', icon: Library },
+  { name: 'Hot Books', href: '/hot', icon: TrendingUp },
   { name: 'Downloads', href: '/downloads', icon: Download },
   { name: 'Settings', href: '/settings', icon: Settings },
 ]

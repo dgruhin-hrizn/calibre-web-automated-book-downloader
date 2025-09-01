@@ -4,14 +4,13 @@ import { Download, BookOpen, Clock, CheckCircle, AlertCircle, TrendingUp, Activi
 import { Button } from '../components/ui/Button'
 import { BookCover } from '../components/ui/BookCover'
 import { CircularProgress } from '../components/ui/CircularProgress'
+import CWAStatus from '../components/CWAStatus'
 import { useDownloadStatus } from '../hooks/useDownloads'
 import { useDownloadStore } from '../stores/downloadStore'
-import { useCalibreStatus } from '../hooks/useCalibreLibrary'
 import { formatDate } from '../lib/utils'
 
 export function Dashboard() {
   const { data: statusData, isLoading, error } = useDownloadStatus()
-  const { data: calibreStatus } = useCalibreStatus()
   const { getRecentDownloads } = useDownloadStore()
   const recentHistory = getRecentDownloads()
   const navigate = useNavigate()
@@ -144,6 +143,9 @@ export function Dashboard() {
         </p>
       </div>
 
+      {/* CWA Status */}
+      <CWAStatus />
+      
       {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
         <div className="rounded-lg border bg-card text-card-foreground shadow-sm p-6 hover:shadow-md transition-shadow">
@@ -202,24 +204,14 @@ export function Dashboard() {
 
         <div className="rounded-lg border bg-card text-card-foreground shadow-sm p-6 hover:shadow-md transition-shadow">
           <div className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <h3 className="tracking-tight text-sm font-medium">Calibre Library</h3>
-            <div className={`h-8 w-8 rounded-full flex items-center justify-center ${
-              calibreStatus?.available 
-                ? 'bg-green-100 dark:bg-green-900/20' 
-                : 'bg-gray-100 dark:bg-gray-900/20'
-            }`}>
-              <Database className={`h-4 w-4 ${
-                calibreStatus?.available 
-                  ? 'text-green-600 dark:text-green-400' 
-                  : 'text-gray-600 dark:text-gray-400'
-              }`} />
+            <h3 className="tracking-tight text-sm font-medium">Library Access</h3>
+            <div className="h-8 w-8 rounded-full bg-blue-100 dark:bg-blue-900/20 flex items-center justify-center">
+              <Database className="h-4 w-4 text-blue-600 dark:text-blue-400" />
             </div>
           </div>
-          <div className="text-2xl font-bold">
-            {calibreStatus?.available ? 'Connected' : 'Not Found'}
-          </div>
+          <div className="text-2xl font-bold">CWA Proxy</div>
           <p className="text-xs text-muted-foreground">
-            {calibreStatus?.configured ? 'Database configured' : 'No database path set'}
+            Via remote connection
           </p>
         </div>
       </div>
@@ -439,3 +431,4 @@ export function Dashboard() {
     </div>
   )
 }
+

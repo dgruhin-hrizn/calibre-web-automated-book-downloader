@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Search as SearchIcon, Filter, Download, AlertCircle, Loader2 } from 'lucide-react'
+import { Search as SearchIcon, Filter, AlertCircle, Loader2 } from 'lucide-react'
 import { Button } from '../components/ui/Button'
-import { CircularProgress } from '../components/ui/CircularProgress'
 import { SkeletonGrid } from '../components/ui/SkeletonCard'
+import { UnifiedBookCard, type UnifiedBook } from '../components/UnifiedBookCard'
 import { useSearchBooks, useSearchCache } from '../hooks/useSearchCache'
 import { useDownloadBook, useDownloadStatus, type Book } from '../hooks/useDownloads'
 import { useDownloadStore } from '../stores/downloadStore'
@@ -240,114 +240,14 @@ export function SearchOptimized() {
               const isThisBookPending = pendingDownloads.has(book.id)
               
               return (
-                <div key={book.id} className="border border-border rounded-lg bg-card overflow-hidden hover:shadow-lg transition-shadow">
-                  <div className="aspect-[3/4] relative">
-                    <img
-                      src={book.preview}
-                      alt={book.title}
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        const target = e.target as HTMLImageElement
-                        target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjI2NyIgdmlld0JveD0iMCAwIDIwMCAyNjciIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIyMDAiIGhlaWdodD0iMjY3IiBmaWxsPSIjRjNGNEY2Ii8+CjxwYXRoIGQ9Ik0xMDAgMTMzLjVMMTAwIDEzMy41WiIgc3Ryb2tlPSIjOUNBM0FGIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4K'
-                      }}
-                    />
-                  </div>
-                  <div className="p-3 space-y-2">
-                    <div className="space-y-1">
-                      <h3 className="font-medium text-sm line-clamp-2 leading-tight">{book.title}</h3>
-                      <p className="text-xs text-muted-foreground line-clamp-1">by {book.author}</p>
-                    </div>
-                    
-                    <div className="flex items-center justify-between text-xs text-muted-foreground">
-                      <span>{book.format?.toUpperCase()}</span>
-                      <span>{book.size}</span>
-                    </div>
-                    
-                    <div className="flex gap-1">
-                      {(() => {
-                        // Determine if we have meaningful progress or backend is actually working
-                        const hasRealProgress = downloadStatus && (
-                          downloadStatus.progress > 0 || // Has actual progress
-                          downloadStatus.status === 'completed' || // Completed
-                          downloadStatus.status === 'error' || // Failed
-                          downloadStatus.status === 'processing' || // Backend processing
-                          downloadStatus.status === 'waiting' // Backend waiting
-                        )
-                        
-                        // Show pending if locally pending OR if we have 0% downloading (which is really pending)
-                        const isPending = isThisBookPending || (
-                          downloadStatus && 
-                          downloadStatus.status === 'downloading' && 
-                          (downloadStatus.progress || 0) === 0
-                        )
-                        
-                        if (hasRealProgress) {
-                          // Show actual queue status with progress
-                          return (
-                            <div className="flex items-center justify-center h-7 px-3 text-xs border border-border rounded-md bg-background">
-                              <CircularProgress
-                                progress={downloadStatus.progress}
-                                status={downloadStatus.status}
-                                size={16}
-                                showPercentage={downloadStatus.status === 'downloading' && downloadStatus.progress > 0}
-                                showText={true}
-                              />
-                            </div>
-                          )
-                        }
-                        
-                        // Show download button or pending state
-                        if (isPending) {
-                          return (
-                            <div className="flex items-center justify-center h-7 px-3 text-xs border border-border rounded-md bg-background">
-                              <div className="relative" style={{ width: 16, height: 16 }}>
-                                <svg
-                                  className="animate-spin text-primary"
-                                  width={16}
-                                  height={16}
-                                  viewBox="0 0 16 16"
-                                >
-                                  <circle
-                                    cx={8}
-                                    cy={8}
-                                    r={6}
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth={2}
-                                    className="opacity-25"
-                                  />
-                                  <circle
-                                    cx={8}
-                                    cy={8}
-                                    r={6}
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth={2}
-                                    strokeDasharray={37.7}
-                                    strokeDashoffset={28.3}
-                                  />
-                                </svg>
-                              </div>
-                              <span className="text-xs font-medium text-primary ml-2">Adding to queue...</span>
-                            </div>
-                          )
-                        }
-                        
-                        return (
-                          <Button
-                            size="sm"
-                            className="text-xs h-7"
-                            onClick={() => handleDownload(book)}
-                            disabled={false}
-                          >
-                            <Download className="w-3 h-3 mr-1" />
-                            Download
-                          </Button>
-                        )
-                      })()}
-                    </div>
-                  </div>
-                </div>
+                <UnifiedBookCard
+                  key={book.id}
+                  book={book as UnifiedBook}
+                  cardType="search"
+                  downloadStatus={downloadStatus}
+                  isPending={isThisBookPending}
+                  onDownload={(_unifiedBook) => handleDownload(book)}
+                />
               )
             })}
           </div>

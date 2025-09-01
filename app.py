@@ -16,11 +16,10 @@ from logger import setup_logger
 from config import _SUPPORTED_BOOK_LANGUAGE, BOOK_LANGUAGE
 from env import FLASK_HOST, FLASK_PORT, APP_ENV, CWA_DB_PATH, DEBUG, USING_EXTERNAL_BYPASSER, BUILD_VERSION, RELEASE_VERSION
 import backend
-from calibre_lookup import calibre_lookup
+
 from cwa_client import CWAClient
 from cwa_settings import cwa_settings
-from cwa_core.database.calibre_db import CalibreDB
-from cwa_core.database.cwa_db import CWA_DB
+from cwa_proxy import CWAProxy, create_cwa_proxy_routes, create_opds_routes
 
 from models import SearchFilters
 
@@ -71,18 +70,26 @@ def get_cwa_client():
 # Initialize with current settings
 cwa_client = get_cwa_client()
 
-# Initialize CWA database and Calibre library access
+# Direct CWA database integration removed - using proxy approach instead
+
+# Initialize CWA proxy using settings from env.py
+from env import CWA_BASE_URL, CWA_USERNAME, CWA_PASSWORD
+CWA_URL = CWA_BASE_URL
+CWA_USER = CWA_USERNAME if CWA_USERNAME else None
+CWA_PASS = CWA_PASSWORD if CWA_PASSWORD else None
+
 try:
-    cwa_db = CWA_DB()
-    calibre_db = CalibreDB()
-    logger.info(f"CWA database initialized: {cwa_db.db_path}{cwa_db.db_file}")
-    logger.info(f"Calibre library available: {calibre_db.is_available()}")
-    if calibre_db.is_available():
-        logger.info(f"Calibre library path: {calibre_db.library_path}")
+    # Initialize CWA proxy with multi-user support
+    cwa_proxy = CWAProxy(CWA_URL)
+    logger.info(f"✅ CWA proxy initialized for: {CWA_URL}")
+    # Add CWA proxy routes
+    create_cwa_proxy_routes(app, cwa_proxy)
+    # Add OPDS proxy routes
+    create_opds_routes(app, cwa_proxy)
+    logger.info("✅ OPDS proxy routes created successfully")
 except Exception as e:
-    logger.error(f"Error initializing CWA databases: {e}")
-    cwa_db = None
-    calibre_db = None
+    logger.error(f"Error initializing CWA proxy: {e}")
+    cwa_proxy = None
 
 def require_cwa_client():
     """Decorator to ensure CWA client is available"""
@@ -243,7 +250,7 @@ if DEBUG:
 @app.route('/api/login', methods=['POST'])
 def api_login() -> Union[Response, Tuple[Response, int]]:
     """
-    Login endpoint for session-based authentication.
+    Login endpoint that authenticates with CWA first, then creates local session.
     
     Expected JSON body:
     {
@@ -262,21 +269,50 @@ def api_login() -> Union[Response, Tuple[Response, int]]:
         username = data['username']
         password = data['password']
         
-        # Validate credentials using existing authenticate logic
-        if validate_credentials(username, password):
-            # Set session data
-            session['logged_in'] = True
-            session['username'] = username
-            session.permanent = True
+        # First, try to authenticate with CWA (authoritative source)
+        if cwa_proxy:
+            logger.info(f"Attempting CWA authentication for user: {username}")
             
-            logger.info(f"User {username} logged in successfully")
-            return jsonify({
-                "success": True,
-                "user": {"username": username}
-            })
+            # Create a temporary user session to test CWA login
+            from cwa_proxy import CWAUserSession
+            temp_session = CWAUserSession(username, password, cwa_proxy.cwa_base_url)
+            
+            if cwa_proxy._login_user_session(temp_session):
+                # CWA login successful - now create our local session
+                session['logged_in'] = True
+                session['username'] = username
+                session['cwa_password'] = password  # Store for ongoing CWA requests
+                session.permanent = True
+                
+                # Store the CWA session for this user
+                with cwa_proxy.sessions_lock:
+                    cwa_proxy.user_sessions[username] = temp_session
+                
+                logger.info(f"User {username} logged in successfully via CWA")
+                return jsonify({
+                    "success": True,
+                    "user": {"username": username}
+                })
+            else:
+                logger.warning(f"CWA authentication failed for user: {username}")
+                return jsonify({"error": "Invalid username or password"}), 401
         else:
-            logger.warning(f"Failed login attempt for user {username}")
-            return jsonify({"error": "Invalid username or password"}), 401
+            # Fallback to local validation if CWA proxy not available
+            logger.warning("CWA proxy not available, falling back to local validation")
+            if validate_credentials(username, password):
+                session['logged_in'] = True
+                session['username'] = username
+                session['cwa_password'] = password
+                session.permanent = True
+                
+                logger.info(f"User {username} logged in successfully (local fallback)")
+                return jsonify({
+                    "success": True,
+                    "user": {"username": username}
+                })
+            else:
+                logger.warning(f"Local authentication failed for user: {username}")
+                return jsonify({"error": "Invalid username or password"}), 401
             
     except Exception as e:
         logger.error_trace(f"Login error: {e}")
@@ -292,6 +328,14 @@ def api_logout() -> Union[Response, Tuple[Response, int]]:
     """
     try:
         username = session.get('username', 'unknown')
+        
+        # Clear CWA session if we have one
+        if hasattr(cwa_proxy, 'user_sessions') and username != 'unknown':
+            with cwa_proxy.sessions_lock:
+                if username in cwa_proxy.user_sessions:
+                    logger.info(f"Clearing CWA session for user: {username}")
+                    del cwa_proxy.user_sessions[username]
+        
         session.clear()
         logger.info(f"User {username} logged out")
         return jsonify({"success": True})
@@ -318,6 +362,25 @@ def api_auth_check() -> Union[Response, Tuple[Response, int]]:
     except Exception as e:
         logger.error_trace(f"Auth check error: {e}")
         return jsonify({"authenticated": False}), 401
+
+@app.route('/api/debug/session', methods=['GET'])
+@login_required
+def debug_session() -> Union[Response, Tuple[Response, int]]:
+    """
+    Debug endpoint to check session state.
+    """
+    try:
+        session_data = {
+            "logged_in": session.get('logged_in'),
+            "username": session.get('username'),
+            "has_cwa_password": bool(session.get('cwa_password')),
+            "session_keys": list(session.keys()),
+            "cwa_proxy_sessions": len(cwa_proxy.user_sessions) if cwa_proxy else 0
+        }
+        return jsonify(session_data)
+    except Exception as e:
+        logger.error_trace(f"Session debug error: {e}")
+        return jsonify({"error": "Session debug failed"}), 500
 
 @app.route('/api/search', methods=['GET'])
 @login_required
@@ -733,66 +796,7 @@ def api_clear_completed() -> Union[Response, Tuple[Response, int]]:
         logger.error_trace(f"Clear completed error: {e}")
         return jsonify({"error": str(e)}), 500
 
-@app.route('/api/calibre/check', methods=['POST'])
-@login_required
-def api_calibre_check_books() -> Union[Response, Tuple[Response, int]]:
-    """
-    Check if books exist in Calibre library.
-    
-    Expected JSON body:
-    {
-        "books": [
-            {"id": "book_id", "title": "Book Title", "author": "Author Name"},
-            ...
-        ]
-    }
-    
-    Returns:
-        JSON with book existence status for each book ID
-    """
-    try:
-        if not calibre_lookup.is_available():
-            return jsonify({"error": "Calibre database not available"}), 503
-        
-        data = request.get_json()
-        if not data or 'books' not in data:
-            return jsonify({"error": "Missing 'books' in request body"}), 400
-        
-        books = data['books']
-        if not isinstance(books, list):
-            return jsonify({"error": "'books' must be an array"}), 400
-        
-        # Check existence for all books
-        existence_map = calibre_lookup.books_exist_batch(books)
-        
-        return jsonify({"exists": existence_map})
-        
-    except Exception as e:
-        logger.error_trace(f"Calibre check error: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/calibre/status', methods=['GET'])
-@login_required
-def api_calibre_status() -> Union[Response, Tuple[Response, int]]:
-    """
-    Get Calibre database availability status.
-    
-    Returns:
-        JSON with Calibre database status
-    """
-    try:
-        is_available = calibre_lookup.is_available()
-        db_path = str(calibre_lookup.db_path) if calibre_lookup.db_path else None
-        
-        return jsonify({
-            "available": is_available,
-            "database_path": db_path,
-            "configured": CWA_DB_PATH is not None
-        })
-        
-    except Exception as e:
-        logger.error_trace(f"Calibre status error: {e}")
-        return jsonify({"error": str(e)}), 500
+# Calibre check endpoints removed - using CWA proxy instead
 
 @app.errorhandler(404)
 def not_found_error(error: Exception) -> Union[Response, Tuple[Response, int]]:
@@ -1147,168 +1151,7 @@ def api_cwa_categories():
         logger.error(f"Error fetching CWA categories: {e}")
         return jsonify({'error': str(e)}), 500
 
-# ============================================================================
-# Calibre Library API Endpoints (Direct Database Access)
-# ============================================================================
-
-@app.route('/api/library/status')
-@login_required
-def api_library_status():
-    """Check Calibre library status"""
-    try:
-        if not calibre_db:
-            return jsonify({
-                'available': False,
-                'error': 'Library database not initialized'
-            })
-        
-        return jsonify({
-            'available': calibre_db.is_available(),
-            'library_path': calibre_db.library_path,
-            'cwa_db_available': cwa_db is not None
-        })
-    except Exception as e:
-        logger.error(f"Error checking library status: {e}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/library/books')
-@login_required
-def api_library_books():
-    """Get books from Calibre library"""
-    try:
-        if not calibre_db or not calibre_db.is_available():
-            return jsonify({'error': 'Calibre library not available'}), 503
-        
-        # Get query parameters
-        page = request.args.get('page', 1, type=int)
-        per_page = request.args.get('per_page', 25, type=int)
-        sort = request.args.get('sort', 'id')
-        search = request.args.get('search', '')
-        
-        # Calculate offset
-        offset = (page - 1) * per_page
-        
-        # Get books
-        result = calibre_db.get_books(
-            limit=per_page,
-            offset=offset,
-            sort_by=sort,
-            search_query=search if search else None
-        )
-        
-        # Add pagination info
-        total_pages = (result['total'] + per_page - 1) // per_page
-        result.update({
-            'page': page,
-            'per_page': per_page,
-            'total_pages': total_pages
-        })
-        
-        return jsonify(result)
-        
-    except Exception as e:
-        logger.error(f"Error fetching library books: {e}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/library/books/<int:book_id>')
-@login_required
-def api_library_book_details(book_id):
-    """Get detailed information about a library book"""
-    try:
-        if not calibre_db or not calibre_db.is_available():
-            return jsonify({'error': 'Calibre library not available'}), 503
-        
-        book = calibre_db.get_book_by_id(book_id)
-        if not book:
-            return jsonify({'error': 'Book not found'}), 404
-        
-        return jsonify(book)
-        
-    except Exception as e:
-        logger.error(f"Error fetching library book details: {e}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/library/books/<int:book_id>/download/<format>')
-@login_required
-def api_library_download_book(book_id, format):
-    """Download a book from the library"""
-    try:
-        if not calibre_db or not calibre_db.is_available():
-            return jsonify({'error': 'Calibre library not available'}), 503
-        
-        # Get book details
-        book = calibre_db.get_book_by_id(book_id)
-        if not book:
-            return jsonify({'error': 'Book not found'}), 404
-        
-        # Check if format is available
-        if format.lower() not in [f.lower() for f in book.get('formats', [])]:
-            return jsonify({'error': f'Format {format} not available'}), 404
-        
-        # Get file path
-        file_path = calibre_db.get_book_file_path(book_id, format)
-        if not file_path or not os.path.exists(file_path):
-            return jsonify({'error': 'Book file not found'}), 404
-        
-        # Create safe filename
-        safe_title = "".join(c for c in book['title'] if c.isalnum() or c in (' ', '-', '_')).rstrip()
-        filename = f"{safe_title}.{format.lower()}"
-        
-        return send_file(
-            file_path,
-            as_attachment=True,
-            download_name=filename,
-            mimetype=f'application/{format.lower()}'
-        )
-        
-    except Exception as e:
-        logger.error(f"Error downloading library book: {e}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/library/books/<int:book_id>/cover')
-@login_required
-def api_library_book_cover(book_id):
-    """Get book cover image"""
-    try:
-        if not calibre_db or not calibre_db.is_available():
-            return jsonify({'error': 'Calibre library not available'}), 503
-        
-        cover_path = calibre_db.get_cover_path(book_id)
-        if not cover_path or not os.path.exists(cover_path):
-            # Return a default cover or 404
-            return jsonify({'error': 'Cover not found'}), 404
-        
-        return send_file(cover_path, mimetype='image/jpeg')
-        
-    except Exception as e:
-        logger.error(f"Error fetching library book cover: {e}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/library/search')
-@login_required
-def api_library_search():
-    """Search books in library"""
-    try:
-        if not calibre_db or not calibre_db.is_available():
-            return jsonify({'error': 'Calibre library not available'}), 503
-        
-        query = request.args.get('q', '')
-        limit = request.args.get('limit', 25, type=int)
-        
-        if not query:
-            return jsonify({'error': 'Query parameter required'}), 400
-        
-        books = calibre_db.search_books(query, limit)
-        
-        return jsonify({
-            'books': books,
-            'total': len(books),
-            'query': query
-        })
-        
-    except Exception as e:
-        logger.error(f"Error searching library: {e}")
-        return jsonify({'error': str(e)}), 500
+# Direct library API endpoints removed - using CWA proxy instead
 
 logger.log_resource_usage()
 

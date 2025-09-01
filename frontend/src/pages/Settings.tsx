@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Button } from '../components/ui/Button'
-import { Eye, EyeOff, ExternalLink, Check, X, AlertCircle, Loader2, Server, Wifi } from 'lucide-react'
-import { useCWASettingsManager, type CWASettings } from '../hooks/useCWASettings'
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card.tsx'
+import { Eye, EyeOff, ExternalLink, Check, X, AlertCircle } from 'lucide-react'
+import CWAStatus from '../components/CWAStatus'
+import { apiRequest } from '../lib/utils'
 
 interface GoogleBooksSettings {
   apiKey: string
@@ -18,31 +18,24 @@ export function Settings() {
   const [isSaving, setIsSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState('')
   
-  // CWA Settings
-  const cwaManager = useCWASettingsManager()
-  const [cwaSettings, setCwaSettings] = useState<CWASettings>(cwaManager.settings)
-  const [showCwaPassword, setShowCwaPassword] = useState(false)
+  // User Profile settings
+  const [kindleEmail, setKindleEmail] = useState('')
+  const [isUpdatingKindleEmail, setIsUpdatingKindleEmail] = useState(false)
+  const [kindleEmailMessage, setKindleEmailMessage] = useState('')
+  
+  // CWA Settings are now managed via environment variables
 
-  // Load current API key on mount
+  // Load current API key and user profile on mount
   useEffect(() => {
     loadGoogleBooksSettings()
+    loadUserProfile()
   }, [])
-  
-  // Update CWA settings when loaded
-  useEffect(() => {
-    setCwaSettings(cwaManager.settings)
-  }, [cwaManager.settings])
 
   const loadGoogleBooksSettings = async () => {
     try {
-      const response = await fetch('http://localhost:8084/api/settings/google-books', {
-        credentials: 'include'
-      })
-      if (response.ok) {
-        const settings: GoogleBooksSettings = await response.json()
-        setGoogleBooksKey(settings.apiKey || '')
-        setKeyStatus(settings.isValid ? 'valid' : settings.apiKey ? 'invalid' : 'unchecked')
-      }
+      const settings: GoogleBooksSettings = await apiRequest('/api/settings/google-books')
+      setGoogleBooksKey(settings.apiKey || '')
+      setKeyStatus(settings.isValid ? 'valid' : settings.apiKey ? 'invalid' : 'unchecked')
     } catch (error) {
       console.error('Failed to load Google Books settings:', error)
     }
@@ -56,25 +49,13 @@ export function Settings() {
 
     setIsTestingKey(true)
     try {
-      const response = await fetch('http://localhost:8084/api/settings/google-books/test', {
+      const result = await apiRequest('/api/settings/google-books/test', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
         body: JSON.stringify({ apiKey: key })
       })
-      
-      if (response.ok) {
-        const result = await response.json()
-        const isValid = result.valid
-        setKeyStatus(isValid ? 'valid' : 'invalid')
-        return isValid
-      } else {
-        console.error('Failed to test API key:', response.status, response.statusText)
-        setKeyStatus('invalid')
-        return false
-      }
+      const isValid = result.valid
+      setKeyStatus(isValid ? 'valid' : 'invalid')
+      return isValid
     } catch (error) {
       console.error('Failed to test API key:', error)
       setKeyStatus('invalid')
@@ -95,24 +76,16 @@ export function Settings() {
         isValid = await testApiKey(googleBooksKey)
       }
 
-      const response = await fetch('http://localhost:8084/api/settings/google-books', {
+      await apiRequest('/api/settings/google-books', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
         body: JSON.stringify({ 
           apiKey: googleBooksKey,
           isValid 
         })
       })
 
-      if (response.ok) {
-        setSaveMessage('Google Books API settings saved successfully!')
-        setTimeout(() => setSaveMessage(''), 3000)
-      } else {
-        setSaveMessage('Failed to save settings')
-      }
+      setSaveMessage('Google Books API settings saved successfully!')
+      setTimeout(() => setSaveMessage(''), 3000)
     } catch (error) {
       console.error('Failed to save Google Books settings:', error)
       setSaveMessage('Failed to save settings')
@@ -120,19 +93,41 @@ export function Settings() {
       setIsSaving(false)
     }
   }
-  
-  // CWA Settings Functions
-  const handleCwaSettingChange = (key: keyof CWASettings, value: any) => {
-    setCwaSettings(prev => ({ ...prev, [key]: value }))
+
+  const loadUserProfile = async () => {
+    try {
+      const profile = await apiRequest('/api/cwa/user/profile')
+      setKindleEmail(profile.kindle_mail || '')
+    } catch (error) {
+      console.error('Failed to load user profile:', error)
+    }
   }
-  
-  const saveCwaSettings = () => {
-    cwaManager.saveSettings(cwaSettings)
+
+  const updateKindleEmail = async () => {
+    if (!kindleEmail.trim()) {
+      setKindleEmailMessage('Please enter a valid email address')
+      setTimeout(() => setKindleEmailMessage(''), 3000)
+      return
+    }
+
+    setIsUpdatingKindleEmail(true)
+    try {
+      await apiRequest('/api/cwa/user/profile/kindle-email', {
+        method: 'POST',
+        body: JSON.stringify({ kindle_mail: kindleEmail })
+      })
+
+      setKindleEmailMessage('Kindle email updated successfully!')
+      setTimeout(() => setKindleEmailMessage(''), 3000)
+    } catch (error) {
+      console.error('Failed to update Kindle email:', error)
+      setKindleEmailMessage('Failed to update Kindle email')
+      setTimeout(() => setKindleEmailMessage(''), 3000)
+    } finally {
+      setIsUpdatingKindleEmail(false)
+    }
   }
-  
-  const testCwaConnection = () => {
-    cwaManager.testConnection(cwaSettings)
-  }
+
   return (
     <div className="space-y-8">
       <div>
@@ -143,205 +138,54 @@ export function Settings() {
       </div>
 
       <div className="grid gap-6">
-        {/* CWA Integration Settings */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Server className="w-5 h-5" />
-              Calibre-Web-Automated Integration
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Connect to an existing Calibre-Web-Automated instance to browse and read your library books.
-            </p>
-            
-            {/* Enable/Disable Toggle */}
-            <div className="flex items-center space-x-3">
-              <input
-                type="checkbox"
-                id="cwa-enabled"
-                checked={cwaSettings.enabled}
-                onChange={(e) => handleCwaSettingChange('enabled', e.target.checked)}
-                className="rounded"
-              />
-              <label htmlFor="cwa-enabled" className="text-sm font-medium">
-                Enable CWA Integration
+        {/* CWA Status */}
+        <CWAStatus />
+
+        {/* User Profile Settings */}
+        <div className="space-y-4">
+          <h2 className="text-xl font-semibold">User Profile</h2>
+          <p className="text-sm text-muted-foreground">
+            Manage your profile settings and device preferences.
+          </p>
+          
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-2">
+                Kindle Email Address
               </label>
-            </div>
-            
-            {cwaSettings.enabled && (
-              <div className="space-y-4 pl-6 border-l-2 border-muted">
-                {/* Base URL */}
-                <div>
-                  <label className="block text-sm font-medium mb-2">
-                    CWA Base URL
-                  </label>
-                  <input
-                    type="text"
-                    value={cwaSettings.base_url}
-                    onChange={(e) => handleCwaSettingChange('base_url', e.target.value)}
-                    placeholder="http://localhost:8083"
-                    className="w-full px-3 py-2 text-sm bg-background border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    The URL where your CWA instance is running
-                  </p>
-                </div>
-                
-                {/* Username */}
-                <div>
-                  <label className="block text-sm font-medium mb-2">
-                    Username (Optional)
-                  </label>
-                  <input
-                    type="text"
-                    value={cwaSettings.username}
-                    onChange={(e) => handleCwaSettingChange('username', e.target.value)}
-                    placeholder="Leave empty for anonymous access"
-                    className="w-full px-3 py-2 text-sm bg-background border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
-                  />
-                </div>
-                
-                {/* Password */}
-                <div>
-                  <label className="block text-sm font-medium mb-2">
-                    Password (Optional)
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={showCwaPassword ? "text" : "password"}
-                      value={cwaSettings.password}
-                      onChange={(e) => handleCwaSettingChange('password', e.target.value)}
-                      placeholder="Leave empty for anonymous access"
-                      className="w-full px-3 py-2 pr-10 text-sm bg-background border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowCwaPassword(!showCwaPassword)}
-                      className="absolute inset-y-0 right-0 flex items-center pr-3 text-muted-foreground hover:text-foreground"
-                    >
-                      {showCwaPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
-                
-                {/* Advanced Settings */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-2">
-                      Timeout (seconds)
-                    </label>
-                    <input
-                      type="number"
-                      min="5"
-                      max="300"
-                      value={cwaSettings.timeout}
-                      onChange={(e) => handleCwaSettingChange('timeout', parseInt(e.target.value) || 30)}
-                      className="w-full px-3 py-2 text-sm bg-background border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
-                    />
-                  </div>
-                  
-                  <div className="flex items-center space-x-3 mt-6">
-                    <input
-                      type="checkbox"
-                      id="cwa-verify-ssl"
-                      checked={cwaSettings.verify_ssl}
-                      onChange={(e) => handleCwaSettingChange('verify_ssl', e.target.checked)}
-                      className="rounded"
-                    />
-                    <label htmlFor="cwa-verify-ssl" className="text-sm">
-                      Verify SSL certificates
-                    </label>
-                  </div>
-                </div>
-                
-                {/* Connection Test */}
-                <div className="space-y-3">
-                  <div className="flex space-x-3">
-                    <Button 
-                      variant="outline" 
-                      onClick={testCwaConnection}
-                      disabled={cwaManager.testingConnection}
-                      className="flex items-center gap-2"
-                    >
-                      {cwaManager.testingConnection ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          Testing...
-                        </>
-                      ) : (
-                        <>
-                          <Wifi className="w-4 h-4" />
-                          Test Connection
-                        </>
-                      )}
-                    </Button>
-                    
-                    <Button 
-                      onClick={saveCwaSettings}
-                      disabled={cwaManager.savingSettings}
-                      className="flex items-center gap-2"
-                    >
-                      {cwaManager.savingSettings ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          Saving...
-                        </>
-                      ) : (
-                        'Save CWA Settings'
-                      )}
-                    </Button>
-                  </div>
-                  
-                  {/* Test Result */}
-                  {cwaManager.testResult && (
-                    <div className={`text-sm p-3 rounded-md flex items-center gap-2 ${
-                      cwaManager.testResult.success 
-                        ? 'bg-green-50 text-green-700 border border-green-200' 
-                        : 'bg-red-50 text-red-700 border border-red-200'
-                    }`}>
-                      {cwaManager.testResult.success ? (
-                        <Check className="w-4 h-4" />
-                      ) : (
-                        <X className="w-4 h-4" />
-                      )}
-                      <div>
-                        <div className="font-medium">
-                          {cwaManager.testResult.success ? 'Connection Successful' : 'Connection Failed'}
-                        </div>
-                        <div className="text-xs">
-                          {cwaManager.testResult.message || cwaManager.testResult.error}
-                        </div>
-                        {cwaManager.testResult.version && (
-                          <div className="text-xs">Version: {cwaManager.testResult.version}</div>
-                        )}
-                        {cwaManager.testResult.warning && (
-                          <div className="text-xs text-yellow-600">{cwaManager.testResult.warning}</div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* Save Result */}
-                  {cwaManager.saveSuccess && (
-                    <div className="text-sm text-green-600 flex items-center gap-2">
-                      <Check className="w-4 h-4" />
-                      CWA settings saved successfully!
-                    </div>
-                  )}
-                  
-                  {cwaManager.saveError && (
-                    <div className="text-sm text-red-600 flex items-center gap-2">
-                      <X className="w-4 h-4" />
-                      Failed to save CWA settings
-                    </div>
-                  )}
-                </div>
+              <p className="text-xs text-muted-foreground mb-2">
+                Enter your Kindle's email address to send books directly to your device. Find this in your Amazon account under "Manage Your Content and Devices".
+              </p>
+              <div className="flex space-x-2">
+                <input
+                  type="email"
+                  value={kindleEmail}
+                  onChange={(e) => setKindleEmail(e.target.value)}
+                  placeholder="username@kindle.com"
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                />
+                <Button 
+                  onClick={updateKindleEmail}
+                  disabled={isUpdatingKindleEmail}
+                >
+                  {isUpdatingKindleEmail ? 'Updating...' : 'Update'}
+                </Button>
               </div>
-            )}
-          </CardContent>
-        </Card>
+              {kindleEmailMessage && (
+                <div className={`mt-2 text-sm flex items-center ${
+                  kindleEmailMessage.includes('successfully') ? 'text-green-600' : 'text-red-600'
+                }`}>
+                  {kindleEmailMessage.includes('successfully') ? (
+                    <Check className="w-4 h-4 mr-1" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 mr-1" />
+                  )}
+                  {kindleEmailMessage}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
 
         {/* Google Books API Settings */}
         <div className="space-y-4">

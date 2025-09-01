@@ -9,7 +9,7 @@ import { useSearchBooks, useSearchCache } from '../hooks/useSearchCache'
 import { useDownloadBook, useDownloadStatus, type Book } from '../hooks/useDownloads'
 import { useDownloadStore } from '../stores/downloadStore'
 import { AuthorFormatter } from '../utils/authorFormatter'
-import { useBatchBookCheck, useBookInLibrary } from '../hooks/useCalibreLibrary'
+
 
 export function Search() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -35,21 +35,7 @@ export function Search() {
   // Ensure download status is being polled
   useDownloadStatus()
   
-  // Calibre library checking
-  const { checkBooksInLibrary } = useBatchBookCheck([])
-  
-  // Check books in library when search results change
-  useEffect(() => {
-    const results = searchBooks.data || cachedResults
-    if (results && results.length > 0) {
-      const booksToCheck = results.map((book: Book) => ({
-        id: book.id,
-        title: book.title,
-        author: book.author
-      }))
-      checkBooksInLibrary(booksToCheck)
-    }
-  }, [searchBooks.data, cachedResults, checkBooksInLibrary])
+  // Library checking removed - using CWA proxy approach instead
 
   // Clear pending downloads when queue status updates
   useEffect(() => {
@@ -340,7 +326,7 @@ interface BookCardProps {
 }
 
 function BookCard({ book, downloads, pendingDownloads, onDownload, onDetails }: BookCardProps) {
-  const { data: inLibrary } = useBookInLibrary(book.id)
+  // Library checking removed - using CWA proxy approach instead
   const downloadStatus = downloads[book.id]
   const isThisBookPending = pendingDownloads.has(book.id)
 
@@ -365,7 +351,7 @@ function BookCard({ book, downloads, pendingDownloads, onDownload, onDetails }: 
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
                       </svg>
                     </div>
-                    ${inLibrary ? '<div class="absolute -top-1 -right-1 bg-primary text-primary-foreground rounded-full p-0.5 border-2 border-background shadow-sm"><svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg></div>' : ''}
+
                   `;
                 }
               }}
@@ -378,12 +364,7 @@ function BookCard({ book, downloads, pendingDownloads, onDownload, onDetails }: 
             </div>
           )}
           
-          {/* In Library Indicator */}
-          {inLibrary && (
-            <div className="absolute -top-1 -right-1 bg-primary text-primary-foreground rounded-full p-0.5 border-2 border-background shadow-sm">
-              <Check className="w-2.5 h-2.5" />
-            </div>
-          )}
+          {/* Library indicator removed - using CWA proxy approach instead */}
         </div>
         
         {/* Book Info */}
