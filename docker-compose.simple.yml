@@ -1,0 +1,58 @@
+deversion: '3.8'
+
+services:
+  cwa-app:
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+    container_name: cwa-local
+    environment:
+      # Flask settings
+      FLASK_PORT: 8084
+      FLASK_HOST: 0.0.0.0
+      DEBUG: false
+      APP_ENV: prod
+      
+      # Database paths - mounted from your Mac's SMB shares
+      CWA_DB_PATH: /app/smb_data/cwa.db
+      
+      # Your CWA integration settings (from your start.sh output)
+      CWA_BASE_URL: http://192.168.1.8:8083
+      CWA_USERNAME: admin
+      CWA_PASSWORD: PRotected!21KEepout!99
+      
+      # Paths and directories
+      INGEST_DIR: /app/ingest
+      LOG_ROOT: /app/logs
+      TMP_DIR: /tmp/cwa-book-downloader
+      
+      # Other settings
+      LOG_LEVEL: INFO
+      ENABLE_LOGGING: true
+      BOOK_LANGUAGE: en
+      USE_BOOK_TITLE: true
+      MAX_CONCURRENT_DOWNLOADS: 3
+      DOWNLOAD_PROGRESS_UPDATE_INTERVAL: 5
+      TZ: America/New_York
+      
+      # Security
+      SECRET_KEY: your-secret-key-change-in-production
+      
+    ports:
+      - "8084:8084"
+    volumes:
+      # Key solution: Docker mounts SMB shares as local volumes
+      - /Volumes/appdata/calibre-web:/app/smb_data:ro  # CWA database (read-only)
+      - /Volumes/ebook-import:/app/ingest              # Book ingest directory  
+      - ./logs:/app/logs                               # Local logs
+      - /tmp/cwa-book-downloader:/tmp/cwa-book-downloader  # Temp directory
+      
+    restart: unless-stopped
+    
+    # Wait for volumes to be available
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8084/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

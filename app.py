@@ -991,7 +991,7 @@ def api_cwa_books():
             return jsonify({'error': 'CWA integration is disabled'}), 503
             
         page = request.args.get('page', 1, type=int)
-        per_page = request.args.get('per_page', 25, type=int)
+        per_page = request.args.get('per_page', 18, type=int)
         sort = request.args.get('sort', 'new')
         
         books = client.get_books(page=page, per_page=per_page, sort=sort)

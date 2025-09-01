@@ -74,7 +74,7 @@ export function useCWAStatus() {
 /**
  * Get books from CWA library with pagination
  */
-export function useCWABooks(page = 1, perPage = 25, sort = 'new') {
+export function useCWABooks(page = 1, perPage = 18, sort = 'new') {
   return useQuery<CWABooksResponse>({
     queryKey: ['cwa', 'books', { page, perPage, sort }],
     queryFn: () => apiRequest('/api/cwa/books', {

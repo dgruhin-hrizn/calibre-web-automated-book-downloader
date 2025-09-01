@@ -91,7 +91,6 @@ export function UnifiedBookCard({
   }, [book.id, onImageLoaded])
   
   const handleImageError = useCallback((e: any) => {
-    console.log('❌ Image error for book:', book.id, e)
     setImageError(true)
     if (onImageLoaded) {
       onImageLoaded(book.id) // Still mark as "processed" to move to next image

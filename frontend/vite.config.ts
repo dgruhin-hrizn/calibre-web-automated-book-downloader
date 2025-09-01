@@ -5,10 +5,14 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
+    host: '0.0.0.0', // Allow external connections (for Docker)
+    port: 5173,
     proxy: {
       // Proxy API requests to Flask backend
       '/api': {
-        target: 'http://localhost:8084',
+        target: process.env.NODE_ENV === 'development' && process.env.DOCKER_ENV 
+          ? 'http://flask-backend:8084'  // Docker container name
+          : 'http://localhost:8084',     // Local development
         changeOrigin: true,
         secure: false,
       }

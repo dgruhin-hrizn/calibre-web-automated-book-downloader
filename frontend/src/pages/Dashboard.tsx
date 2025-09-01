@@ -143,9 +143,7 @@ export function Dashboard() {
         </p>
       </div>
 
-      {/* CWA Status */}
-      <CWAStatus />
-      
+
       {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
         <div className="rounded-lg border bg-card text-card-foreground shadow-sm p-6 hover:shadow-md transition-shadow">
@@ -238,6 +236,7 @@ export function Dashboard() {
                   >
                     <option value={5}>5</option>
                     <option value={10}>10</option>
+                    <option value={18}>18</option>
                     <option value={20}>20</option>
                     <option value={50}>50</option>
                   </select>

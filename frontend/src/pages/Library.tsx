@@ -66,7 +66,7 @@ export function Library() {
   // But being conservative to avoid overwhelming the server/filesystem
   const MAX_CONCURRENT_IMAGES = 4 // Load up to 4 images simultaneously
   
-  const perPage = viewMode === 'grid' ? 20 : 15
+  const perPage = viewMode === 'grid' ? 18 : 18
   
   // Concurrent image loading effect
   useEffect(() => {
@@ -79,13 +79,13 @@ export function Library() {
     
     if (imagesToLoad.length > 0) {
       setCurrentlyLoadingImages(prev => new Set([...prev, ...imagesToLoad]))
-      console.log(`📸 Loading ${imagesToLoad.length} more images (${currentlyLoadingImages.size + imagesToLoad.length}/${Math.min(MAX_CONCURRENT_IMAGES, imageLoadQueue.length)} concurrent slots)`)
+
     }
   }, [imageLoadQueue, loadedImages, currentlyLoadingImages, MAX_CONCURRENT_IMAGES])
   
   // Function to mark an image as loaded and trigger next load
   const markImageLoaded = (bookId: number) => {
-    console.log('Image completed for book:', bookId)
+
     setLoadedImages(prev => new Set([...prev, bookId]))
     setCurrentlyLoadingImages(prev => {
       const newSet = new Set(prev)
@@ -155,7 +155,7 @@ export function Library() {
       }
       
       // Debug: Log basic response info
-      console.log('CWA Response: ', `${response.total} total books, ${response.rows?.length} in current page (page ${page})`)
+
       
       // Transform CWA response to our format
       const transformedBooks: LibraryBook[] = (response.rows || []).map((book: any) => {
@@ -200,7 +200,7 @@ export function Library() {
       setLoadedImages(new Set())
       setCurrentlyLoadingImages(new Set())
       
-      console.log('Initialized image queue with', booksWithCovers.length, 'books with covers')
+
       
       // Preload the first few images for instant display (reduced to avoid API overload)
       const preloadUrls = transformedBooks
@@ -209,14 +209,10 @@ export function Library() {
         .map(book => `/api/cwa/library/books/${book.id}/cover/md`)
       
       if (preloadUrls.length > 0) {
-        imageCache.preloadImages(preloadUrls).then(() => {
-          const stats = imageCache.getStats()
-          console.log(`🚀 Preloaded ${preloadUrls.length} cover images. Cache: ${stats.size}/${stats.maxSize}`)
-        })
+        imageCache.preloadImages(preloadUrls)
       }
       
       // Fetch format information for all books on this page
-      console.log('📚 Fetching format info for', transformedBooks.length, 'books...')
       fetchFormatsForBooks(transformedBooks)
       
     } catch (error) {
@@ -231,14 +227,14 @@ export function Library() {
   const testCWAConnection = async () => {
     try {
       const response = await apiRequest('/api/cwa/health')
-      console.log('CWA Health Check:', response)
+
       return response.status === 'ok'
     } catch (error) {
       console.error('CWA health check failed:', error)
       // Also try the proxied health check
       try {
         const proxyResponse = await apiRequest('/api/cwa/health-proxy')
-        console.log('CWA Health Proxy Check:', proxyResponse)
+
         return proxyResponse.status === 'ok'
       } catch (proxyError) {
         console.error('CWA proxy health check also failed:', proxyError)
@@ -249,7 +245,7 @@ export function Library() {
 
   // Load library statistics using endpoints available to all users
   const loadStats = async () => {
-    console.log('📊 loadStats function called')
+
     try {
       // Load stats using endpoints available to all users
       const [authorsResponse, seriesResponse, tagsResponse, booksResponse] = await Promise.all([
@@ -266,12 +262,7 @@ export function Library() {
         apiRequest('/api/cwa/library/books?length=1').catch(() => ({ total: 0 })) // Just get total count
       ])
 
-      console.log('📊 Stats Debug:', {
-        authorsResponse: Array.isArray(authorsResponse) ? `Array[${authorsResponse.length}]` : typeof authorsResponse,
-        seriesResponse: Array.isArray(seriesResponse) ? `Array[${seriesResponse.length}]` : typeof seriesResponse,
-        tagsResponse: Array.isArray(tagsResponse) ? `Array[${tagsResponse.length}]` : typeof tagsResponse,
-        booksTotal: booksResponse.total || booksResponse.totalNotFiltered || 0
-      })
+
 
       setStats({
         total_books: booksResponse.total || booksResponse.totalNotFiltered || 0,
@@ -299,11 +290,11 @@ export function Library() {
   // Initial load
   useEffect(() => {
     const initialize = async () => {
-      console.log('🚀 Library initialization starting...')
+
       
       // Test CWA connection first
       const isHealthy = await testCWAConnection()
-      console.log('🏥 Health check result:', isHealthy)
+
       
       if (!isHealthy) {
         setError('CWA health check failed. Please ensure your CWA instance is running and accessible.')
@@ -312,10 +303,10 @@ export function Library() {
       }
       
       // If healthy, load data
-      console.log('📚 Loading books...')
+
       loadBooks(1, '', sortParam)
       
-      console.log('📊 Loading stats...')
+
       loadStats()
     }
     
@@ -387,7 +378,7 @@ export function Library() {
         })
       )
       
-      console.log(`📚 Updated formats for batch of ${batch.length} books`)
+
       
       // Small delay between batches to be gentle on the server
       if (batches.indexOf(batch) < batches.length - 1) {
@@ -395,7 +386,7 @@ export function Library() {
       }
     }
     
-    console.log('✅ Finished fetching formats for all books')
+
   }
 
   // Download book from CWA library
@@ -422,7 +413,7 @@ export function Library() {
         a.click()
         window.URL.revokeObjectURL(url)
         document.body.removeChild(a)
-        console.log('Downloaded from CWA library:', book.title, 'in', downloadFormat)
+
       } else {
         console.error('Failed to download from CWA library')
       }

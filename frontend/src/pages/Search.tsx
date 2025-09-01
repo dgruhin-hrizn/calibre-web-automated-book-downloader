@@ -243,7 +243,7 @@ export function Search() {
       </div>
 
       {/* Search Results */}
-      {searchBooks.isPending && !!executedSearchParams && <SkeletonGrid count={20} />}
+      {searchBooks.isPending && !!executedSearchParams && <SkeletonGrid count={18} />}
       
       {searchBooks.isError && !!executedSearchParams && (
         <div className="text-center py-12">

@@ -32,7 +32,6 @@ export function CachedImage({ src, alt, className, onLoad, onError, style }: Cac
         onLoad?.()
       })
       .catch(error => {
-        console.error('Failed to load cached image:', src, error)
         setHasError(true)
         setIsLoading(false)
         onError?.(error)

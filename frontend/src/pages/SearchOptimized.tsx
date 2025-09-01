@@ -205,7 +205,7 @@ export function SearchOptimized() {
       </div>
 
       {/* Search Results */}
-      {isLoading && <SkeletonGrid count={20} />}
+      {isLoading && <SkeletonGrid count={18} />}
       
       {isError && (
         <div className="text-center py-12">
